@@ -1,0 +1,30 @@
+# Windows ISO / Images
+*.iso
+*.wim
+*.esd
+*.swm
+
+# Build output
+build/*
+!build/.gitkeep
+
+# Source media
+source/*
+!source/README.md
+
+# VirtIO / external drivers
+drivers/virtio/*
+!drivers/virtio/README.md
+
+# Temporary mounts
+mount/
+temp/
+tmp/
+
+# Logs
+*.log
+
+# Editor / OS
+.vscode/
+Thumbs.db
+Desktop.ini

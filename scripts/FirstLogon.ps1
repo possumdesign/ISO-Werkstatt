@@ -17,6 +17,9 @@ $Log = "C:\ISO-Werkstatt\firstlogon.log"
 "Starte WindowsDefaults.ps1" | Out-File $Log -Append
 & "$ScriptRoot\WindowsDefaults.ps1" 2>&1 | Out-File $Log -Append
 
+"Starte Edge.ps1" | Out-File $Log -Append
+& "$ScriptRoot\Edge.ps1" 2>&1 | Out-File $Log -Append
+
 "HKCU Test: $(Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name HideFileExt -ErrorAction SilentlyContinue)" |
     Out-File $Log -Append
 

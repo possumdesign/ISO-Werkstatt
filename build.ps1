@@ -100,6 +100,7 @@ $RuntimeScripts = @(
     "Search.ps1",
     "Explorer.ps1",
     "WindowsDefaults.ps1",
+    "Edge.ps1",
     "FirstLogon.ps1"
 )
 

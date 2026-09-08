@@ -28,3 +28,9 @@ tmp/
 .vscode/
 Thumbs.db
 Desktop.ini
+
+# Portable third-party tools
+tools/**/*.exe
+tools/**/*.dll
+tools/**/*.zip
+tools/**/*.7z

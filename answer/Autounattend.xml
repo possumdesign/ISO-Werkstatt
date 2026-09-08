@@ -197,6 +197,15 @@
 
       </AutoLogon>
 
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+         <Order>1</Order>
+         <Description>ISO-Werkstatt FirstLogon</Description>
+         <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\ISO-Werkstatt\scripts\FirstLogon.ps1</CommandLine>
+       </SynchronousCommand>
+      </FirstLogonCommands>
+
+
     </component>
 
   </settings>

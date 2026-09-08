@@ -137,18 +137,61 @@ Write-Host "[4/5] Synchronisiere Portable Tools..."
 
 if (Test-Path $ToolsSource) {
 
-    Get-ChildItem $ToolsSource -Force | ForEach-Object {
-
-        Copy-Item `
-            $_.FullName `
-            $OemTools `
+    # Alten Inhalt entfernen, damit keine veralteten Tools
+    # aus vorherigen Builds in der ISO verbleiben
+    if (Test-Path $OemTools) {
+        Remove-Item `
+            "$OemTools\*" `
             -Recurse `
-            -Force
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+
+    New-Item `
+        -ItemType Directory `
+        -Force `
+        $OemTools | Out-Null
+
+    $Tools = @(Get-ChildItem $ToolsSource -Force)
+
+    if ($Tools.Count -gt 0) {
+
+        foreach ($Tool in $Tools) {
+
+            Write-Host "      -> $($Tool.Name)"
+
+            if ($Tool.Extension -eq ".zip") {
+
+                $TargetFolder = Join-Path $OemTools $Tool.BaseName
+
+                New-Item `
+                    -ItemType Directory `
+                    -Force `
+                    $TargetFolder | Out-Null
+
+                Expand-Archive `
+                    -Path $Tool.FullName `
+                    -DestinationPath $TargetFolder `
+                    -Force
+            }
+            else {
+
+                Copy-Item `
+                    $Tool.FullName `
+                    $OemTools `
+                    -Recurse `
+                    -Force
+            }
+        }
+
+    }
+    else {
+        Write-Host "      Keine Portable Tools vorhanden."
     }
 
 }
 else {
-    Write-Host "Keine Tools vorhanden - wird übersprungen."
+    Write-Host "      Tools-Ordner nicht vorhanden - wird übersprungen."
 }
 
 

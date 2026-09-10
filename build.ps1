@@ -35,6 +35,7 @@ $Root = $PSScriptRoot
 $AnswerTemplate = Join-Path $Root "answer\Autounattend.xml"
 $ScriptsSource  = Join-Path $Root "scripts"
 $ToolsSource    = Join-Path $Root "tools"
+$VirtioStage = Join-Path $Root "build\virtio"
 
 $IsoRoot = Join-Path $Root "build\iso-root"
 
@@ -42,7 +43,7 @@ $OemRoot = Join-Path $IsoRoot 'sources\$OEM$'
 $OemScripts = Join-Path $OemRoot '$1\ISO-Werkstatt\scripts'
 $OemTools   = Join-Path $OemRoot '$1\ISO-Werkstatt\Tools'
 $SetupScripts = Join-Path $OemRoot '$$\Setup\Scripts'
-
+$OemPackages = Join-Path $OemRoot '$1\ISO-Werkstatt\packages'
 $FinalAnswer = Join-Path $IsoRoot "Autounattend.xml"
 
 $Oscdimg = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
@@ -65,9 +66,7 @@ Write-Host ""
 # Voraussetzungen prüfen
 # ------------------------------------------------------------
 
-#if (-not (Test-Path $IsoRoot)) {
-#    throw "ISO-Root fehlt: $IsoRoot"
-#}
+
 
 if (-not (Test-Path $AnswerTemplate)) {
     throw "Autounattend-Template fehlt: $AnswerTemplate"
@@ -177,10 +176,115 @@ Write-Host "      Windows-ISO erfolgreich vorbereitet."
 Write-Host ""
 
 # ------------------------------------------------------------
+# VirtIO-ISO vorbereiten
+# ------------------------------------------------------------
+
+Write-Host "[2/7] Extrahiere VirtIO-Komponenten..."
+
+# Alten VirtIO-Staging-Bereich entfernen
+if (Test-Path $VirtioStage) {
+    Write-Host "      Entferne alten VirtIO-Staging-Bereich..."
+
+    Remove-Item `
+        $VirtioStage `
+        -Recurse `
+        -Force
+}
+
+New-Item `
+    -ItemType Directory `
+    -Force `
+    $VirtioStage | Out-Null
+
+
+$VirtDisk = $null
+
+try {
+
+    Write-Host "      Mounte VirtIO-ISO..."
+
+    $VirtDisk = Mount-DiskImage `
+        -ImagePath $VirtioIsoPath `
+        -PassThru
+
+    $VirtVolume = $VirtDisk |
+        Get-Volume |
+        Where-Object DriveLetter |
+        Select-Object -First 1
+
+    if (-not $VirtVolume) {
+        throw "VirtIO-ISO wurde gemountet, besitzt aber keinen Laufwerksbuchstaben."
+    }
+
+    $VirtDrive = "$($VirtVolume.DriveLetter):"
+
+    Write-Host "      VirtIO-ISO: $VirtDrive"
+
+
+    # Benötigte Windows-11-x64-Treiber
+    $VirtioDrivers = @{
+        "vioscsi"   = "$VirtDrive\vioscsi\w11\amd64"
+        "NetKVM"    = "$VirtDrive\NetKVM\w11\amd64"
+        "Balloon"   = "$VirtDrive\Balloon\w11\amd64"
+        "vioserial" = "$VirtDrive\vioserial\w11\amd64"
+    }
+
+
+    foreach ($DriverName in $VirtioDrivers.Keys) {
+
+        $Source = $VirtioDrivers[$DriverName]
+        $Target = Join-Path $VirtioStage $DriverName
+
+        if (-not (Test-Path $Source)) {
+            throw "VirtIO-Treiber fehlt: $Source"
+        }
+
+        Write-Host "      -> $DriverName"
+
+        Copy-Item `
+            $Source `
+            $Target `
+            -Recurse `
+            -Force
+    }
+
+
+    # QEMU Guest Agent
+    $GuestAgentSource = "$VirtDrive\guest-agent\qemu-ga-x86_64.msi"
+    $GuestAgentTarget = Join-Path $VirtioStage "qemu-ga-x86_64.msi"
+
+    if (-not (Test-Path $GuestAgentSource)) {
+        throw "QEMU Guest Agent nicht gefunden: $GuestAgentSource"
+    }
+
+    Write-Host "      -> QEMU Guest Agent"
+
+    Copy-Item `
+        $GuestAgentSource `
+        $GuestAgentTarget `
+        -Force
+
+}
+finally {
+
+    if ($VirtDisk) {
+
+        Write-Host "      Hänge VirtIO-ISO aus..."
+
+        Dismount-DiskImage `
+            -ImagePath $VirtioIsoPath
+    }
+}
+
+
+Write-Host "      VirtIO-Komponenten erfolgreich vorbereitet."
+Write-Host ""
+
+# ------------------------------------------------------------
 # Autounattend.xml erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/5] Erzeuge Autounattend.xml..."
+Write-Host "[2/7] Erzeuge Autounattend.xml..."
 
 $Xml = Get-Content $AnswerTemplate -Raw
 
@@ -199,18 +303,24 @@ Set-Content `
 # OEM-Struktur erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/5] Bereite OEM-Struktur vor..."
+Write-Host "[2/7] Bereite OEM-Struktur vor..."
 
 New-Item -ItemType Directory -Force $OemScripts | Out-Null
 New-Item -ItemType Directory -Force $OemTools | Out-Null
 New-Item -ItemType Directory -Force $SetupScripts | Out-Null
+New-Item -ItemType Directory -Force $OemPackages | Out-Null
+
+Copy-Item `
+    (Join-Path $VirtioStage "qemu-ga-x86_64.msi") `
+    (Join-Path $OemPackages "qemu-ga-x86_64.msi") `
+    -Force
 
 
 # ------------------------------------------------------------
 # Skripte synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[3/5] Synchronisiere Skripte..."
+Write-Host "[3/7] Synchronisiere Skripte..."
 
 $RuntimeScripts = @(
     "Search.ps1",
@@ -250,7 +360,7 @@ Copy-Item `
 # Portable Tools synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[4/5] Synchronisiere Portable Tools..."
+Write-Host "[4/7] Synchronisiere Portable Tools..."
 
 if (Test-Path $ToolsSource) {
 
@@ -316,7 +426,7 @@ else {
 # ISO erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[5/5] Backe ISO..."
+Write-Host "[5/7] Backe ISO..."
 
 $BiosBoot = Join-Path $IsoRoot "boot\etfsboot.com"
 $UefiBoot = Join-Path $IsoRoot "efi\microsoft\boot\efisys.bin"

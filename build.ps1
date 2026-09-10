@@ -1,8 +1,30 @@
 param(
-    [string]$Version = "0.4.4"
+    [Parameter(Mandatory = $true)]
+    [string]$WindowsIso,
+
+    [Parameter(Mandatory = $true)]
+    [string]$VirtioIso,
+
+    [string]$Edition = "Windows 11 Pro",
+
+    [string]$Version = "0.6.0"
 )
 
+Write-Host "WindowsIso: $WindowsIso"
+Write-Host "VirtioIso : $VirtioIso"
+Write-Host "Edition   : $Edition"
+Write-Host "Version   : $Version"
+Write-Host ""
+
 $ErrorActionPreference = "Stop"
+
+if (-not (Test-Path $WindowsIso)) {
+    throw "Windows-ISO nicht gefunden: $WindowsIso"
+}
+
+if (-not (Test-Path $VirtioIso)) {
+    throw "VirtIO-ISO nicht gefunden: $VirtioIso"
+}
 
 # ------------------------------------------------------------
 # ISO-Werkstatt Build Configuration
@@ -43,9 +65,9 @@ Write-Host ""
 # Voraussetzungen prüfen
 # ------------------------------------------------------------
 
-if (-not (Test-Path $IsoRoot)) {
-    throw "ISO-Root fehlt: $IsoRoot"
-}
+#if (-not (Test-Path $IsoRoot)) {
+#    throw "ISO-Root fehlt: $IsoRoot"
+#}
 
 if (-not (Test-Path $AnswerTemplate)) {
     throw "Autounattend-Template fehlt: $AnswerTemplate"
@@ -59,12 +81,106 @@ if (-not $env:ISO_LAB_PASSWORD) {
     throw "Umgebungsvariable ISO_LAB_PASSWORD ist nicht gesetzt."
 }
 
+$WindowsIsoPath = (Resolve-Path $WindowsIso).Path
+$VirtioIsoPath  = (Resolve-Path $VirtioIso).Path
+
+# ------------------------------------------------------------
+# Windows-ISO vorbereiten
+# ------------------------------------------------------------
+
+Write-Host "[1/6] Erzeuge frisches ISO-Root aus Windows-ISO..."
+
+# Altes Build-Verzeichnis entfernen
+if (Test-Path $IsoRoot) {
+    Write-Host "      Entferne altes ISO-Root..."
+    Remove-Item `
+        $IsoRoot `
+        -Recurse `
+        -Force
+}
+
+New-Item `
+    -ItemType Directory `
+    -Force `
+    $IsoRoot | Out-Null
+
+
+# Windows-ISO mounten
+$WinDisk = $null
+
+try {
+
+    Write-Host "      Mounte Windows-ISO..."
+
+    $WinDisk = Mount-DiskImage `
+        -ImagePath $WindowsIsoPath `
+        -PassThru
+
+    $WinVolume = $WinDisk | Get-Volume
+
+    if (-not $WinVolume.DriveLetter) {
+        throw "Windows-ISO wurde gemountet, besitzt aber keinen Laufwerksbuchstaben."
+    }
+
+    $WinDrive = "$($WinVolume.DriveLetter):"
+
+    Write-Host "      Windows-ISO: $WinDrive"
+
+
+    # ISO-Inhalt kopieren
+    Write-Host "      Kopiere Windows-Installationsdateien..."
+
+    Copy-Item `
+        "$WinDrive\*" `
+        $IsoRoot `
+        -Recurse `
+        -Force
+
+
+    # Schreibschutz der von ISO kopierten Dateien entfernen
+    Write-Host "      Entferne ReadOnly-Attribute..."
+
+    Get-ChildItem `
+        $IsoRoot `
+        -Recurse `
+        -Force `
+        -File |
+        ForEach-Object {
+            $_.IsReadOnly = $false
+        }
+
+}
+finally {
+
+    if ($WinDisk) {
+        Write-Host "      Hänge Windows-ISO aus..."
+
+        Dismount-DiskImage `
+            -ImagePath $WindowsIsoPath
+    }
+}
+
+
+# Kontrolle
+$InstallWim = Join-Path $IsoRoot "sources\install.wim"
+$BootWim    = Join-Path $IsoRoot "sources\boot.wim"
+
+if (-not (Test-Path $InstallWim)) {
+    throw "install.wim wurde im Windows-ISO nicht gefunden."
+}
+
+if (-not (Test-Path $BootWim)) {
+    throw "boot.wim wurde im Windows-ISO nicht gefunden."
+}
+
+Write-Host "      Windows-ISO erfolgreich vorbereitet."
+Write-Host ""
 
 # ------------------------------------------------------------
 # Autounattend.xml erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[1/5] Erzeuge Autounattend.xml..."
+Write-Host "[2/5] Erzeuge Autounattend.xml..."
 
 $Xml = Get-Content $AnswerTemplate -Raw
 

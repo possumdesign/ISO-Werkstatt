@@ -10,6 +10,20 @@ param(
     [string]$Version = "0.6.0"
 )
 
+# ------------------------------------------------------------
+# Build-Protokoll (ein eigenes Log pro Lauf)
+# ------------------------------------------------------------
+
+$ErrorActionPreference = "Stop"
+$LogDirectory = Join-Path $PSScriptRoot "build\logs"
+New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+$BuildLog = Join-Path $LogDirectory ("build-{0}-{1}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"), [guid]::NewGuid().ToString("N"))
+$TranscriptStarted = $false
+
+try {
+    Start-Transcript -LiteralPath $BuildLog -NoClobber -ErrorAction Stop | Out-Null
+    $TranscriptStarted = $true
+    Write-Host "Build-Log: $BuildLog"
 Write-Host "WindowsIso: $WindowsIso"
 Write-Host "VirtioIso : $VirtioIso"
 Write-Host "Edition   : $Edition"
@@ -34,6 +48,15 @@ $Root = $PSScriptRoot
 
 $AnswerTemplate = Join-Path $Root "answer\Autounattend.xml"
 $ScriptsSource  = Join-Path $Root "scripts"
+
+$RuntimeScripts = @(
+    "Search.ps1",
+    "Explorer.ps1",
+    "WindowsDefaults.ps1",
+    "Edge.ps1",
+    "FirstLogon.ps1"
+)
+
 $ToolsSource    = Join-Path $Root "tools"
 $VirtioStage = Join-Path $Root "build\virtio"
 $MountRoot    = Join-Path $Root "build\mount"
@@ -51,6 +74,7 @@ $FinalAnswer = Join-Path $IsoRoot "Autounattend.xml"
 $Oscdimg = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
 
 $OutputIso = Join-Path $Root "build\ISO-Werkstatt-W11Pro-v$Version.iso"
+
 
 
 # ------------------------------------------------------------
@@ -94,6 +118,52 @@ if (-not $env:ISO_LAB_PASSWORD) {
 
 $WindowsIsoPath = (Resolve-Path $WindowsIso).Path
 $VirtioIsoPath  = (Resolve-Path $VirtioIso).Path
+
+# ------------------------------------------------------------
+# PowerShell-Skripte validieren
+# ------------------------------------------------------------
+
+Write-Host "[PRECHECK] Prüfe PowerShell-Skripte..."
+
+foreach ($Script in $RuntimeScripts) {
+
+    $ScriptPath = Join-Path $ScriptsSource $Script
+
+    if (-not (Test-Path $ScriptPath)) {
+        throw "Benötigtes Skript fehlt: $ScriptPath"
+    }
+
+    $Tokens = $null
+    $ParseErrors = $null
+
+    [System.Management.Automation.Language.Parser]::ParseFile(
+        $ScriptPath,
+        [ref]$Tokens,
+        [ref]$ParseErrors
+    ) | Out-Null
+
+    if ($ParseErrors.Count -gt 0) {
+
+        Write-Host ""
+        Write-Host "[FEHLER] Syntaxfehler in $Script" -ForegroundColor Red
+
+        foreach ($ParseError in $ParseErrors) {
+            Write-Host (
+                "  Zeile {0}, Spalte {1}: {2}" -f `
+                $ParseError.Extent.StartLineNumber,
+                $ParseError.Extent.StartColumnNumber,
+                $ParseError.Message
+            ) -ForegroundColor Red
+        }
+
+        throw "PowerShell-Syntaxprüfung fehlgeschlagen."
+    }
+
+    Write-Host "      [OK] $Script"
+}
+
+Write-Host "      Alle PowerShell-Skripte sind syntaktisch gültig."
+Write-Host ""
 
 # ------------------------------------------------------------
 # Windows-ISO vorbereiten
@@ -321,28 +391,61 @@ Write-Host "      Edition : $Edition"
 Write-Host "      WIM-Index: $ImageIndex"
 
 
-# Mount-Verzeichnisse frisch vorbereiten
+# ------------------------------------------------------------
+# Alte WIM-Mounts bereinigen und Mount-Verzeichnisse vorbereiten
+# ------------------------------------------------------------
+
+Write-Host "      Prüfe vorhandene WIM-Mounts..."
+
+$MountedImages = @(
+    Get-WindowsImage -Mounted -ErrorAction SilentlyContinue
+)
+
 foreach ($MountDir in @($BootMount, $InstallMount)) {
+
+    $TargetPath = [System.IO.Path]::GetFullPath($MountDir).TrimEnd("\")
+
+    $ExistingMount = $MountedImages | Where-Object {
+
+        if (-not $_.Path) {
+            return $false
+        }
+
+        $ExistingPath = [System.IO.Path]::GetFullPath($_.Path).TrimEnd("\")
+
+        $ExistingPath -ieq $TargetPath
+    }
+
+    if ($ExistingMount) {
+
+        Write-Host "      Alter WIM-Mount gefunden: $MountDir" `
+            -ForegroundColor Yellow
+
+        Write-Host "      Verwerfe alten Mount..."
+
+        Dismount-WindowsImage `
+            -Path $MountDir `
+            -Discard `
+            -ErrorAction Stop | Out-Null
+    }
 
     if (Test-Path $MountDir) {
 
-        $Content = @(
-            Get-ChildItem $MountDir -Force -ErrorAction SilentlyContinue
-        )
+        Write-Host "      Bereinige Mount-Verzeichnis: $MountDir"
 
-        if ($Content.Count -gt 0) {
-            throw "Mount-Verzeichnis ist nicht leer: $MountDir"
-        }
-
-        Remove-Item $MountDir -Force
+        Remove-Item `
+            $MountDir `
+            -Recurse `
+            -Force
     }
 
     New-Item `
         -ItemType Directory `
-        -Force `
-        $MountDir | Out-Null
+        -Path $MountDir `
+        -Force | Out-Null
 }
 
+Write-Host "      [OK] WIM-Mount-Verzeichnisse bereit"
 
 # ------------------------------------------------------------
 # boot.wim
@@ -471,6 +574,28 @@ $Xml = $Xml.Replace(
     [string]$ImageIndex
 )
 
+# XML-Struktur prüfen
+try {
+    [void]([xml]$Xml)
+}
+catch {
+    throw "Autounattend.xml ist kein gültiges XML: $($_.Exception.Message)"
+}
+
+# Prüfen, ob noch Platzhalter übrig sind
+$RemainingPlaceholders = [regex]::Matches(
+    $Xml,
+    '__[A-Z0-9_]+__'
+) | ForEach-Object {
+    $_.Value
+} | Sort-Object -Unique
+
+if ($RemainingPlaceholders.Count -gt 0) {
+    throw "Nicht ersetzte Platzhalter in Autounattend.xml: $($RemainingPlaceholders -join ', ')"
+}
+
+Write-Host "      [OK] Autounattend.xml ist gültig"
+
 Set-Content `
     -Path $FinalAnswer `
     -Value $Xml `
@@ -500,13 +625,6 @@ Copy-Item `
 
 Write-Host "[3/8] Synchronisiere Skripte..."
 
-$RuntimeScripts = @(
-    "Search.ps1",
-    "Explorer.ps1",
-    "WindowsDefaults.ps1",
-    "Edge.ps1",
-    "FirstLogon.ps1"
-)
 
 foreach ($Script in $RuntimeScripts) {
 
@@ -634,6 +752,16 @@ if ($LASTEXITCODE -ne 0) {
 
 
 # ------------------------------------------------------------
+# SHA256 der erfolgreich erzeugten ISO
+# ------------------------------------------------------------
+
+Write-Host "Berechne SHA256 der fertigen ISO..."
+$IsoHash = Get-FileHash -LiteralPath $OutputIso -Algorithm SHA256
+$HashFile = "$OutputIso.sha256"
+"{0} *{1}" -f $IsoHash.Hash, [System.IO.Path]::GetFileName($OutputIso) |
+    Set-Content -LiteralPath $HashFile -Encoding ASCII
+
+# ------------------------------------------------------------
 # Ergebnis
 # ------------------------------------------------------------
 
@@ -650,3 +778,24 @@ Write-Host ""
 Write-Host "Groesse:"
 Write-Host ("{0:N2} GB" -f ($Result.Length / 1GB))
 Write-Host ""
+Write-Host "SHA256: $($IsoHash.Hash)"
+Write-Host "Pruefsummendatei: $HashFile"
+Write-Host "Build-Log: $BuildLog"
+Write-Host ""
+}
+catch {
+    # Vor Stop-Transcript ausgeben, damit der Fehler im Log steht.
+    Write-Host ("[FEHLER] Build abgebrochen: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    throw
+}
+finally {
+    if ($TranscriptStarted) {
+        try {
+            Stop-Transcript -ErrorAction Stop | Out-Null
+        }
+        catch {
+            # Ein Logging-Fehler darf den ursprünglichen Build-Fehler nicht ersetzen.
+            Write-Warning ("Build-Log konnte nicht abgeschlossen werden: {0}" -f $_.Exception.Message) -WarningAction Continue
+        }
+    }
+}

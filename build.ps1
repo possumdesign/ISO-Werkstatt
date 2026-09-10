@@ -36,7 +36,9 @@ $AnswerTemplate = Join-Path $Root "answer\Autounattend.xml"
 $ScriptsSource  = Join-Path $Root "scripts"
 $ToolsSource    = Join-Path $Root "tools"
 $VirtioStage = Join-Path $Root "build\virtio"
-
+$MountRoot    = Join-Path $Root "build\mount"
+$BootMount    = Join-Path $MountRoot "boot"
+$InstallMount = Join-Path $MountRoot "install"
 $IsoRoot = Join-Path $Root "build\iso-root"
 
 $OemRoot = Join-Path $IsoRoot 'sources\$OEM$'
@@ -65,7 +67,17 @@ Write-Host ""
 # ------------------------------------------------------------
 # Voraussetzungen prüfen
 # ------------------------------------------------------------
+$CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
 
+$Principal = New-Object Security.Principal.WindowsPrincipal($CurrentUser)
+
+$IsAdmin = $Principal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+
+if (-not $IsAdmin) {
+    throw "ISO-Werkstatt muss für WIM-Anpassungen als Administrator ausgeführt werden."
+}
 
 
 if (-not (Test-Path $AnswerTemplate)) {
@@ -87,7 +99,7 @@ $VirtioIsoPath  = (Resolve-Path $VirtioIso).Path
 # Windows-ISO vorbereiten
 # ------------------------------------------------------------
 
-Write-Host "[1/6] Erzeuge frisches ISO-Root aus Windows-ISO..."
+Write-Host "[1/8] Erzeuge frisches ISO-Root aus Windows-ISO..."
 
 # Altes Build-Verzeichnis entfernen
 if (Test-Path $IsoRoot) {
@@ -155,7 +167,7 @@ finally {
         Write-Host "      Hänge Windows-ISO aus..."
 
         Dismount-DiskImage `
-            -ImagePath $WindowsIsoPath
+            -ImagePath $WindowsIsoPath | Out-Null
     }
 }
 
@@ -179,7 +191,7 @@ Write-Host ""
 # VirtIO-ISO vorbereiten
 # ------------------------------------------------------------
 
-Write-Host "[2/7] Extrahiere VirtIO-Komponenten..."
+Write-Host "[2/8] Extrahiere VirtIO-Komponenten..."
 
 # Alten VirtIO-Staging-Bereich entfernen
 if (Test-Path $VirtioStage) {
@@ -272,7 +284,7 @@ finally {
         Write-Host "      Hänge VirtIO-ISO aus..."
 
         Dismount-DiskImage `
-            -ImagePath $VirtioIsoPath
+            -ImagePath $VirtioIsoPath | Out-Null
     }
 }
 
@@ -281,16 +293,182 @@ Write-Host "      VirtIO-Komponenten erfolgreich vorbereitet."
 Write-Host ""
 
 # ------------------------------------------------------------
+# Windows-Edition ermitteln und VirtIO-Treiber integrieren
+# ------------------------------------------------------------
+
+Write-Host "[3/8] Ermittle Windows-Edition und integriere VirtIO-Treiber..."
+
+# Gewünschte Edition im install.wim suchen
+$Images = Get-WindowsImage -ImagePath $InstallWim
+
+$EditionMatches = @(
+    $Images | Where-Object {
+        $_.ImageName -eq $Edition
+    }
+)
+
+if ($EditionMatches.Count -eq 0) {
+    throw "Edition '$Edition' wurde in install.wim nicht gefunden."
+}
+
+if ($EditionMatches.Count -gt 1) {
+    throw "Edition '$Edition' wurde mehrfach in install.wim gefunden."
+}
+
+$ImageIndex = $EditionMatches[0].ImageIndex
+
+Write-Host "      Edition : $Edition"
+Write-Host "      WIM-Index: $ImageIndex"
+
+
+# Mount-Verzeichnisse frisch vorbereiten
+foreach ($MountDir in @($BootMount, $InstallMount)) {
+
+    if (Test-Path $MountDir) {
+
+        $Content = @(
+            Get-ChildItem $MountDir -Force -ErrorAction SilentlyContinue
+        )
+
+        if ($Content.Count -gt 0) {
+            throw "Mount-Verzeichnis ist nicht leer: $MountDir"
+        }
+
+        Remove-Item $MountDir -Force
+    }
+
+    New-Item `
+        -ItemType Directory `
+        -Force `
+        $MountDir | Out-Null
+}
+
+
+# ------------------------------------------------------------
+# boot.wim
+# ------------------------------------------------------------
+
+Write-Host "      Mounte boot.wim Index 2..."
+
+$BootMounted = $false
+
+try {
+
+    Mount-WindowsImage `
+        -ImagePath $BootWim `
+        -Index 2 `
+        -Path $BootMount | Out-Null
+
+    $BootMounted = $true
+
+    Write-Host "      -> boot.wim: vioscsi"
+
+    Add-WindowsDriver `
+        -Path $BootMount `
+        -Driver (Join-Path $VirtioStage "vioscsi") `
+        -Recurse | Out-Null
+
+    Write-Host "      -> boot.wim: NetKVM"
+
+    Add-WindowsDriver `
+        -Path $BootMount `
+        -Driver (Join-Path $VirtioStage "NetKVM") `
+        -Recurse | Out-Null
+
+    Write-Host "      Speichere boot.wim..."
+
+    Dismount-WindowsImage `
+        -Path $BootMount `
+        -Save | Out-Null
+
+    $BootMounted = $false
+}
+catch {
+
+    if ($BootMounted) {
+        Dismount-WindowsImage `
+            -Path $BootMount `
+            -Discard `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    throw
+}
+
+
+# ------------------------------------------------------------
+# install.wim
+# ------------------------------------------------------------
+
+Write-Host "      Mounte install.wim Index $ImageIndex..."
+
+$InstallMounted = $false
+
+try {
+
+    Mount-WindowsImage `
+        -ImagePath $InstallWim `
+        -Index $ImageIndex `
+        -Path $InstallMount | Out-Null
+
+    $InstallMounted = $true
+
+    $InstallDrivers = @(
+        "vioscsi",
+        "NetKVM",
+        "Balloon",
+        "vioserial"
+    )
+
+    foreach ($DriverName in $InstallDrivers) {
+
+        Write-Host "      -> install.wim: $DriverName"
+
+        Add-WindowsDriver `
+            -Path $InstallMount `
+            -Driver (Join-Path $VirtioStage $DriverName) `
+            -Recurse | Out-Null
+    }
+
+    Write-Host "      Speichere install.wim..."
+
+    Dismount-WindowsImage `
+        -Path $InstallMount `
+        -Save | Out-Null
+
+    $InstallMounted = $false
+}
+catch {
+
+    if ($InstallMounted) {
+        Dismount-WindowsImage `
+            -Path $InstallMount `
+            -Discard `
+            -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    throw
+}
+
+Write-Host "      VirtIO-Treiber erfolgreich integriert."
+Write-Host ""
+
+# ------------------------------------------------------------
 # Autounattend.xml erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/7] Erzeuge Autounattend.xml..."
+Write-Host "[2/8] Erzeuge Autounattend.xml..."
 
 $Xml = Get-Content $AnswerTemplate -Raw
 
 $Xml = $Xml.Replace(
     "__LAB_PASSWORD__",
     $env:ISO_LAB_PASSWORD
+)
+
+$Xml = $Xml.Replace(
+    "__IMAGE_INDEX__",
+    [string]$ImageIndex
 )
 
 Set-Content `
@@ -303,7 +481,7 @@ Set-Content `
 # OEM-Struktur erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/7] Bereite OEM-Struktur vor..."
+Write-Host "[2/8] Bereite OEM-Struktur vor..."
 
 New-Item -ItemType Directory -Force $OemScripts | Out-Null
 New-Item -ItemType Directory -Force $OemTools | Out-Null
@@ -320,7 +498,7 @@ Copy-Item `
 # Skripte synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[3/7] Synchronisiere Skripte..."
+Write-Host "[3/8] Synchronisiere Skripte..."
 
 $RuntimeScripts = @(
     "Search.ps1",
@@ -360,7 +538,7 @@ Copy-Item `
 # Portable Tools synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[4/7] Synchronisiere Portable Tools..."
+Write-Host "[4/8] Synchronisiere Portable Tools..."
 
 if (Test-Path $ToolsSource) {
 
@@ -426,7 +604,7 @@ else {
 # ISO erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[5/7] Backe ISO..."
+Write-Host "[5/8] Backe ISO..."
 
 $BiosBoot = Join-Path $IsoRoot "boot\etfsboot.com"
 $UefiBoot = Join-Path $IsoRoot "efi\microsoft\boot\efisys.bin"

@@ -39,3 +39,18 @@ Windows 11 Pro x64 DE für die Labor-/Proxmox-Umgebung.
 - `source/` – originale Installationsmedien
 - `tools/` – externe Build-Werkzeuge
 - `build/` – erzeugte ISO-Dateien
+## Build-Profile
+
+Ohne zusätzlichen Parameter verwendet der Builder config/lab-config.psd1.
+Dieses Profil enthält die bisherigen Werte für Edition, Antwortdatei und Tools-Ordner.
+Die Pfade beziehen sich auf das Repository. Ein ausdrücklich angegebenes
+-Edition überschreibt die Edition aus dem Profil.
+
+Für ein weiteres Profil die Datei beispielsweise nach config/test.psd1
+kopieren und die drei Werte anpassen. Beim bisherigen Build-Aufruf zusätzlich
+-Profile test angeben (Dateiname ohne .psd1).
+
+Fehlende Profile, unbekannte Einstellungen und leere oder falsch typisierte Werte
+führen vor den ISO-Arbeiten zum Abbruch. Der Profilname erscheint im Build-Log.
+Profile enthalten keine Passwörter; ISO_LAB_PASSWORD wird weiterhin verwendet.
+Die Windows-Anpassungsskripte und der Name der Ausgabe-ISO bleiben unverändert.

@@ -97,7 +97,7 @@ $FinalAnswer = Join-Path $IsoRoot "Autounattend.xml"
 
 $Oscdimg = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
 
-$OutputIso = Join-Path $Root "build\ISO-Werkstatt-W11Pro-v$Version.iso"
+$OutputIso = Join-Path $Root "build\ISO-Werkstatt-$Profile-v$Version.iso"
 
 
 

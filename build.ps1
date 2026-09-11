@@ -40,9 +40,32 @@ foreach ($Key in $ProfileKeys) {
     }
 }
 foreach ($Key in $BuildProfile.Keys) {
-    if ($Key -notin $ProfileKeys) {
+    if ($Key -notin ($ProfileKeys + "Adjustments")) {
         throw "Build-Profil '$Profile': unbekannte Einstellung '$Key'."
     }
+}
+# Fehlende Schalter behalten das bisherige Verhalten (alle aktiv).
+$AdjustmentNames = @("Search", "Explorer", "WindowsDefaults", "Edge")
+$Adjustments = [ordered]@{}
+foreach ($Name in $AdjustmentNames) {
+    $Adjustments[$Name] = $true
+}
+if ($BuildProfile.ContainsKey("Adjustments")) {
+    if ($BuildProfile.Adjustments -isnot [System.Collections.IDictionary]) {
+        throw "Build-Profil '$Profile': 'Adjustments' muss eine Hashtable sein."
+    }
+    foreach ($Name in $BuildProfile.Adjustments.Keys) {
+        if ($Name -notin $AdjustmentNames) {
+            throw "Build-Profil '$Profile': unbekannte Anpassung '$Name'."
+        }
+        if ($BuildProfile.Adjustments[$Name] -isnot [bool]) {
+            throw "Build-Profil '$Profile': '$Name' muss ein Boolean sein."
+        }
+        $Adjustments[$Name] = $BuildProfile.Adjustments[$Name]
+    }
+}
+foreach ($Name in $AdjustmentNames) {
+    Write-Host ("Anpassung {0}: {1}" -f $Name, $Adjustments[$Name])
 }
 if (-not $PSBoundParameters.ContainsKey("Edition")) {
     $Edition = $BuildProfile.Edition
@@ -664,6 +687,14 @@ foreach ($Script in $RuntimeScripts) {
         -Force
 }
 
+# Nur die validierten Schalter in die VM übernehmen, keine Build-Geheimnisse.
+$AdjustmentLines = @("@{")
+foreach ($Name in $AdjustmentNames) {
+    $BooleanLiteral = if ($Adjustments[$Name]) { '$true' } else { '$false' }
+    $AdjustmentLines += "    $Name = $BooleanLiteral"
+}
+$AdjustmentLines += "}"
+$AdjustmentLines | Set-Content -LiteralPath (Join-Path $OemScripts "adjustments.psd1") -Encoding UTF8
 $SetupComplete = Join-Path $ScriptsSource "SetupComplete.cmd"
 
 if (-not (Test-Path $SetupComplete)) {

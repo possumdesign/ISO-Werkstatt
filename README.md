@@ -12,7 +12,7 @@ Builder für eine angepasste Windows-11-VM-ISO für die Labor-/Proxmox-Umgebung.
 - Edge erhält eine Richtlinie zur automatischen Installation von uBlock Origin Lite aus dem Edge-Store; die Erweiterung wird nicht offline in die ISO eingebettet.
 - Optionale portable Tools werden kopiert; ZIP-Dateien werden jeweils in einen eigenen Unterordner entpackt.
 - Syntaxprüfung der eingebundenen PowerShell-Skripte, XML-/Platzhalterprüfung, gezieltes Cleanup alter WIM-Mounts, Build-Protokoll und SHA256-Prüfsumme.
-- Build-Profile für Edition, Antwortdatei und Tools-Ordner.
+- Build-Profile für Edition, Antwortdatei, Tools-Ordner und vier einzeln schaltbare Windows-Anpassungsgruppen.
 
 ## Voraussetzungen
 
@@ -70,7 +70,26 @@ Die Pfade beziehen sich auf das Repository. Alle drei Einstellungen sind erforde
 
 Für ein weiteres Profil die Datei beispielsweise nach `config/test.psd1` kopieren, die Werte anpassen und beim Build zusätzlich `-Profile test` angeben. Profilnamen beginnen mit einem Buchstaben oder einer Ziffer und dürfen anschließend auch Bindestriche und Unterstriche enthalten. Ein ausdrücklich übergebenes `-Edition` hat Vorrang vor dem Profilwert.
 
-Die Profile steuern derzeit keine einzelnen Windows-Anpassungsskripte, Treiber oder Dienste. Kennwörter gehören nicht ins Profil; dafür wird weiterhin `ISO_LAB_PASSWORD` verwendet.
+Die Profile steuern keine Treiber oder zusätzlichen Dienste. Kennwörter gehören nicht ins Profil; dafür wird weiterhin `ISO_LAB_PASSWORD` verwendet.
+
+### Windows-Anpassungen auswählen
+
+Im Profil kann zusätzlich die Hashtable `Adjustments` stehen:
+
+```powershell
+Adjustments = @{
+    Search          = $true
+    Explorer        = $true
+    WindowsDefaults = $true
+    Edge            = $false
+}
+```
+
+Dieses Beispiel führt alle bisherigen Anpassungen außer Edge aus. `Edge = $false` überspringt auch die uBlock-Origin-Lite-Richtlinie. `Explorer = $false` überspringt die Explorer-Einstellungen und das abschließende Öffnen von „Dieser PC“.
+
+Der gesamte Abschnitt ist optional; fehlende Schalter gelten als `$true`, sodass bestehende Profile unverändert weiterarbeiten. Werte müssen echte PowerShell-Booleans (`$true` oder `$false`) sein, keine Zeichenfolgen. Unbekannte Namen oder falsche Typen führen vor den ISO-Arbeiten zum Abbruch.
+
+Der Builder schreibt die vier aufgelösten Schalter nach `C:\ISO-Werkstatt\scripts\adjustments.psd1` in der VM. FirstLogon prüft diese Datei und protokolliert ausgeführte sowie übersprungene Gruppen. Fehlt die Datei oder ist sie ungültig, bricht FirstLogon mit einer Fehlermeldung im Log ab. Deaktivieren bedeutet, eine Anpassung bei dieser Installation auszulassen; bereits gesetzte Einstellungen werden dadurch nicht zurückgenommen.
 
 ## Ablauf und Ergebnisse
 
@@ -132,4 +151,4 @@ Build-Ausgaben, ISO-Dateien und Logs sind durch `.gitignore` ausgeschlossen.
 
 - RDP und OpenSSH als optionale Anpassungen.
 - Optionale Softwarepakete: `Packages.ps1` ist bisher nicht in den Build-/FirstLogon-Ablauf eingebunden.
-- Weitere Profiloptionen für gezielt auswählbare Windows-Anpassungen.
+- Weitere Profiloptionen über die vier vorhandenen Anpassungsgruppen hinaus.

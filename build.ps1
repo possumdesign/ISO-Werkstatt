@@ -7,6 +7,9 @@ param(
 
     [string]$Edition = "Windows 11 Pro",
 
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')]
+    [string]$Profile = "lab-config",
+
     [string]$Version = "0.6.0"
 )
 
@@ -24,6 +27,27 @@ try {
     Start-Transcript -LiteralPath $BuildLog -NoClobber -ErrorAction Stop | Out-Null
     $TranscriptStarted = $true
     Write-Host "Build-Log: $BuildLog"
+# Profil vor den Build-Arbeiten laden und prüfen.
+$ProfilePath = Join-Path $PSScriptRoot "config\$Profile.psd1"
+if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) {
+    throw "Build-Profil fehlt: $ProfilePath"
+}
+$BuildProfile = Import-PowerShellDataFile -LiteralPath $ProfilePath -ErrorAction Stop
+$ProfileKeys = @("Edition", "AnswerTemplate", "ToolsDirectory")
+foreach ($Key in $ProfileKeys) {
+    if ($BuildProfile[$Key] -isnot [string] -or [string]::IsNullOrWhiteSpace($BuildProfile[$Key])) {
+        throw "Build-Profil '$Profile': '$Key' muss eine nicht leere Zeichenfolge sein."
+    }
+}
+foreach ($Key in $BuildProfile.Keys) {
+    if ($Key -notin $ProfileKeys) {
+        throw "Build-Profil '$Profile': unbekannte Einstellung '$Key'."
+    }
+}
+if (-not $PSBoundParameters.ContainsKey("Edition")) {
+    $Edition = $BuildProfile.Edition
+}
+Write-Host "Profil    : $Profile"
 Write-Host "WindowsIso: $WindowsIso"
 Write-Host "VirtioIso : $VirtioIso"
 Write-Host "Edition   : $Edition"
@@ -46,7 +70,7 @@ if (-not (Test-Path $VirtioIso)) {
 
 $Root = $PSScriptRoot
 
-$AnswerTemplate = Join-Path $Root "answer\Autounattend.xml"
+$AnswerTemplate = Join-Path $Root $BuildProfile.AnswerTemplate
 $ScriptsSource  = Join-Path $Root "scripts"
 
 $RuntimeScripts = @(
@@ -57,7 +81,7 @@ $RuntimeScripts = @(
     "FirstLogon.ps1"
 )
 
-$ToolsSource    = Join-Path $Root "tools"
+$ToolsSource    = Join-Path $Root $BuildProfile.ToolsDirectory
 $VirtioStage = Join-Path $Root "build\virtio"
 $MountRoot    = Join-Path $Root "build\mount"
 $BootMount    = Join-Path $MountRoot "boot"

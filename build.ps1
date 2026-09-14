@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$WindowsIso,
 
@@ -10,7 +10,10 @@ param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')]
     [string]$Profile = "lab-config",
 
-    [string]$Version = "0.6.0"
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]*$')]
+    [string]$Version = "0.7.0",
+
+    [guid]$RunId = [guid]::NewGuid()
 )
 
 # ------------------------------------------------------------
@@ -18,15 +21,53 @@ param(
 # ------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "BuildSupport.ps1")
 $LogDirectory = Join-Path $PSScriptRoot "build\logs"
 New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
-$BuildLog = Join-Path $LogDirectory ("build-{0}-{1}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"), [guid]::NewGuid().ToString("N"))
+$BuildLog = Join-Path $LogDirectory "build-$RunId.log"
+$StatePath = Join-Path $LogDirectory "build-$RunId.json"
+$StartedAt = [DateTimeOffset]::UtcNow
+$BuildTimer = [Diagnostics.Stopwatch]::StartNew()
+$BuildLock = $null
 $TranscriptStarted = $false
+$StateReserved = $false
+$BuildState = [ordered]@{
+    SchemaVersion = 1
+    RunId = $RunId.ToString()
+    Status = "Running"
+    Step = 0
+    TotalSteps = 10
+    StepName = "Start"
+    Profile = $Profile
+    Version = $Version
+    TargetOS = $null
+    VirtioTarget = $null
+    Edition = $null
+    StartedAt = $StartedAt.ToString("o")
+    UpdatedAt = $StartedAt.ToString("o")
+    CompletedAt = $null
+    DurationSeconds = $null
+    LogPath = $BuildLog
+    IsoPath = $null
+    IsoSizeBytes = $null
+    Sha256 = $null
+    HashFile = $null
+    Error = $null
+}
 
 try {
+    # Eine RunId darf niemals einen früheren oder laufenden Status überschreiben.
+    $Reservation = [IO.File]::Open($StatePath, [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    $Reservation.Dispose()
+    $StateReserved = $true
+    Write-BuildState -State $BuildState -Path $StatePath
     Start-Transcript -LiteralPath $BuildLog -NoClobber -ErrorAction Stop | Out-Null
     $TranscriptStarted = $true
     Write-Host "Build-Log: $BuildLog"
+    Write-Host "Build-Status: $StatePath"
+    $BuildLock = Enter-BuildLock -Path (Join-Path $PSScriptRoot "build\build.lock")
+    Set-BuildStep -State $BuildState -Path $StatePath -Number 1 -Name "Profil und Voraussetzungen prüfen"
 # Profil vor den Build-Arbeiten laden und prüfen.
 $ProfilePath = Join-Path $PSScriptRoot "config\$Profile.psd1"
 if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) {
@@ -40,9 +81,24 @@ foreach ($Key in $ProfileKeys) {
     }
 }
 foreach ($Key in $BuildProfile.Keys) {
-    if ($Key -notin ($ProfileKeys + "Adjustments")) {
+    if ($Key -notin ($ProfileKeys + @("Adjustments", "TargetOS"))) {
         throw "Build-Profil '$Profile': unbekannte Einstellung '$Key'."
     }
+}
+# Ohne Zielangabe bleiben bestehende Profile Windows-11-Profile.
+$TargetOS = "Windows11"
+if ($BuildProfile.ContainsKey("TargetOS")) {
+    if ($BuildProfile.TargetOS -isnot [string] -or [string]::IsNullOrWhiteSpace($BuildProfile.TargetOS)) {
+        throw "Build-Profil '$Profile': 'TargetOS' muss eine nicht leere Zeichenfolge sein."
+    }
+    $TargetOS = $BuildProfile.TargetOS
+}
+$TargetConfig = Get-BuildTarget -TargetOS $TargetOS
+$VirtioTarget = $TargetConfig.VirtioTarget
+$BuildState.TargetOS = $TargetOS
+$BuildState.VirtioTarget = $VirtioTarget
+if (-not $TargetConfig.Supported) {
+    throw "Zielsystem '$TargetOS' ist vorbereitet, aber noch nicht für Builds freigegeben. Antwortdatei und Installationstest stehen aus."
 }
 # Fehlende Schalter behalten das bisherige Verhalten (alle aktiv).
 $AdjustmentNames = @("Search", "Explorer", "WindowsDefaults", "Edge")
@@ -70,6 +126,8 @@ foreach ($Name in $AdjustmentNames) {
 if (-not $PSBoundParameters.ContainsKey("Edition")) {
     $Edition = $BuildProfile.Edition
 }
+$BuildState.Edition = $Edition
+Write-Host "Zielsystem: $TargetOS (VirtIO: $VirtioTarget)"
 Write-Host "Profil    : $Profile"
 Write-Host "WindowsIso: $WindowsIso"
 Write-Host "VirtioIso : $VirtioIso"
@@ -216,7 +274,7 @@ Write-Host ""
 # Windows-ISO vorbereiten
 # ------------------------------------------------------------
 
-Write-Host "[1/8] Erzeuge frisches ISO-Root aus Windows-ISO..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 2 -Name "Windows-ISO vorbereiten"
 
 # Altes Build-Verzeichnis entfernen
 if (Test-Path $IsoRoot) {
@@ -308,7 +366,7 @@ Write-Host ""
 # VirtIO-ISO vorbereiten
 # ------------------------------------------------------------
 
-Write-Host "[2/8] Extrahiere VirtIO-Komponenten..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 3 -Name "VirtIO-Komponenten extrahieren"
 
 # Alten VirtIO-Staging-Bereich entfernen
 if (Test-Path $VirtioStage) {
@@ -350,12 +408,12 @@ try {
     Write-Host "      VirtIO-ISO: $VirtDrive"
 
 
-    # Benötigte Windows-11-x64-Treiber
+    # Zum Zielsystem passende x64-Treiber
     $VirtioDrivers = @{
-        "vioscsi"   = "$VirtDrive\vioscsi\w11\amd64"
-        "NetKVM"    = "$VirtDrive\NetKVM\w11\amd64"
-        "Balloon"   = "$VirtDrive\Balloon\w11\amd64"
-        "vioserial" = "$VirtDrive\vioserial\w11\amd64"
+        "vioscsi"   = "$VirtDrive\vioscsi\$VirtioTarget\amd64"
+        "NetKVM"    = "$VirtDrive\NetKVM\$VirtioTarget\amd64"
+        "Balloon"   = "$VirtDrive\Balloon\$VirtioTarget\amd64"
+        "vioserial" = "$VirtDrive\vioserial\$VirtioTarget\amd64"
     }
 
 
@@ -413,7 +471,7 @@ Write-Host ""
 # Windows-Edition ermitteln und VirtIO-Treiber integrieren
 # ------------------------------------------------------------
 
-Write-Host "[3/8] Ermittle Windows-Edition und integriere VirtIO-Treiber..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 4 -Name "Edition ermitteln und Treiber integrieren"
 
 # Gewünschte Edition im install.wim suchen
 $Images = Get-WindowsImage -ImagePath $InstallWim
@@ -607,7 +665,7 @@ Write-Host ""
 # Autounattend.xml erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/8] Erzeuge Autounattend.xml..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 5 -Name "Autounattend.xml erzeugen"
 
 $Xml = Get-Content $AnswerTemplate -Raw
 
@@ -663,7 +721,7 @@ Set-Content `
 # OEM-Struktur erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[2/8] Bereite OEM-Struktur vor..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 6 -Name "OEM-Struktur vorbereiten"
 
 New-Item -ItemType Directory -Force $OemScripts | Out-Null
 New-Item -ItemType Directory -Force $OemTools | Out-Null
@@ -680,7 +738,7 @@ Copy-Item `
 # Skripte synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[3/8] Synchronisiere Skripte..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 7 -Name "Skripte synchronisieren"
 
 
 foreach ($Script in $RuntimeScripts) {
@@ -721,7 +779,7 @@ Copy-Item `
 # Portable Tools synchronisieren
 # ------------------------------------------------------------
 
-Write-Host "[4/8] Synchronisiere Portable Tools..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 8 -Name "Portable Tools synchronisieren"
 
 if (Test-Path $ToolsSource) {
 
@@ -787,7 +845,7 @@ else {
 # ISO erzeugen
 # ------------------------------------------------------------
 
-Write-Host "[5/8] Backe ISO..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 9 -Name "ISO erstellen"
 
 $BiosBoot = Join-Path $IsoRoot "boot\etfsboot.com"
 $UefiBoot = Join-Path $IsoRoot "efi\microsoft\boot\efisys.bin"
@@ -820,7 +878,7 @@ if ($LASTEXITCODE -ne 0) {
 # SHA256 der erfolgreich erzeugten ISO
 # ------------------------------------------------------------
 
-Write-Host "Berechne SHA256 der fertigen ISO..."
+Set-BuildStep -State $BuildState -Path $StatePath -Number 10 -Name "SHA256 und Ergebnis speichern"
 $IsoHash = Get-FileHash -LiteralPath $OutputIso -Algorithm SHA256
 $HashFile = "$OutputIso.sha256"
 "{0} *{1}" -f $IsoHash.Hash, [System.IO.Path]::GetFileName($OutputIso) |
@@ -830,7 +888,18 @@ $HashFile = "$OutputIso.sha256"
 # Ergebnis
 # ------------------------------------------------------------
 
-$Result = Get-Item $OutputIso
+$Result = Get-Item -LiteralPath $OutputIso
+$BuildState.Status = "Succeeded"
+$BuildState.CompletedAt = [DateTimeOffset]::UtcNow.ToString("o")
+$BuildState.DurationSeconds = [Math]::Round($BuildTimer.Elapsed.TotalSeconds, 2)
+$BuildState.IsoPath = $Result.FullName
+$BuildState.IsoSizeBytes = $Result.Length
+$BuildState.Sha256 = $IsoHash.Hash
+$BuildState.HashFile = $HashFile
+Write-BuildState -State $BuildState -Path $StatePath
+Write-Progress -Activity "ISO-Werkstatt" -Completed
+Write-Host "Ergebnisdatei: $StatePath"
+Write-Host ("Dauer: {0:N1} Minuten" -f $BuildTimer.Elapsed.TotalMinutes)
 
 Write-Host ""
 Write-Host "========================================"
@@ -849,17 +918,42 @@ Write-Host "Build-Log: $BuildLog"
 Write-Host ""
 }
 catch {
-    # Vor Stop-Transcript ausgeben, damit der Fehler im Log steht.
-    Write-Host ("[FEHLER] Build abgebrochen: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    $Failure = $_
+    if ($StateReserved) {
+        $BuildState.Status = "Failed"
+        $BuildState.CompletedAt = [DateTimeOffset]::UtcNow.ToString("o")
+        $BuildState.DurationSeconds = [Math]::Round($BuildTimer.Elapsed.TotalSeconds, 2)
+        $Message = $Failure.Exception.Message
+        if ($env:ISO_LAB_PASSWORD) {
+            $Message = $Message.Replace($env:ISO_LAB_PASSWORD, "[REDACTED]")
+        }
+        $BuildState.Error = $Message
+        # Fehlerstatus darf niemals eine möglicherweise ältere ISO als Erfolg ausgeben.
+        $BuildState.IsoPath = $null
+        $BuildState.IsoSizeBytes = $null
+        $BuildState.Sha256 = $null
+        $BuildState.HashFile = $null
+        try {
+            Write-BuildState -State $BuildState -Path $StatePath
+        }
+        catch {
+            Write-Warning "Build-Fehlerstatus konnte nicht gespeichert werden." -WarningAction Continue
+        }
+        Write-Host ("[FEHLER] Build abgebrochen: {0}" -f $Message) -ForegroundColor Red
+    }
     throw
 }
 finally {
+    $BuildTimer.Stop()
+    if ($BuildLock) {
+        $BuildLock.Dispose()
+    }
+    Write-Progress -Activity "ISO-Werkstatt" -Completed
     if ($TranscriptStarted) {
         try {
             Stop-Transcript -ErrorAction Stop | Out-Null
         }
         catch {
-            # Ein Logging-Fehler darf den ursprünglichen Build-Fehler nicht ersetzen.
             Write-Warning ("Build-Log konnte nicht abgeschlossen werden: {0}" -f $_.Exception.Message) -WarningAction Continue
         }
     }

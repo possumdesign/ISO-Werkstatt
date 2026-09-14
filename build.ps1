@@ -611,9 +611,19 @@ Write-Host "[2/8] Erzeuge Autounattend.xml..."
 
 $Xml = Get-Content $AnswerTemplate -Raw
 
+# XML-Sonderzeichen maskieren, ohne das tatsächliche Kennwort zu verändern.
+try {
+    [void][System.Xml.XmlConvert]::VerifyXmlChars($env:ISO_LAB_PASSWORD)
+}
+catch {
+    throw "ISO_LAB_PASSWORD enthält Zeichen, die in XML 1.0 nicht zulässig sind."
+}
+$XmlPassword = [System.Security.SecurityElement]::Escape($env:ISO_LAB_PASSWORD)
+# Unterstriche schützen vor Platzhalter-Ersetzung/-Prüfung; CR vor XML-Normalisierung.
+$XmlPassword = $XmlPassword.Replace("_", "&#95;").Replace("`r", "&#13;")
 $Xml = $Xml.Replace(
     "__LAB_PASSWORD__",
-    $env:ISO_LAB_PASSWORD
+    $XmlPassword
 )
 
 $Xml = $Xml.Replace(

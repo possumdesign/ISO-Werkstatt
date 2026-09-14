@@ -42,7 +42,7 @@ $env:ISO_LAB_PASSWORD = Read-Host "Kennwort für LabAdmin"
     -Version "0.7.0"
 ```
 
-`Read-Host` in diesem Beispiel zeigt die Eingabe sichtbar an. Das Kennwort wird derzeit direkt in XML eingesetzt; XML-Sonderzeichen wie `&` oder `<` können deshalb die XML-Prüfung scheitern lassen.
+`Read-Host` in diesem Beispiel zeigt die Eingabe sichtbar an. Der Builder maskiert XML-Sonderzeichen wie `&`, `<`, `>` und Anführungszeichen automatisch. Das Kennwort bleibt nach dem Einlesen der XML unverändert; in XML 1.0 unzulässige Zeichen werden abgewiesen.
 
 | Parameter | Bedeutung | Standard |
 | --- | --- | --- |

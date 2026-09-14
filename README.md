@@ -10,9 +10,10 @@ Builder für eine angepasste Windows-11-VM-ISO für die Labor-/Proxmox-Umgebung.
 - QEMU Guest Agent wird über `SetupComplete.cmd` installiert.
 - Windows-Anpassungen beim ersten Anmelden: Websuche reduzieren, Dateiendungen und versteckte Dateien anzeigen, Explorer mit „Dieser PC“ öffnen, Widgets und Werbe-/Consumer-Inhalte reduzieren sowie Edge konfigurieren.
 - Edge erhält eine Richtlinie zur automatischen Installation von uBlock Origin Lite aus dem Edge-Store; die Erweiterung wird nicht offline in die ISO eingebettet.
-- Optionale portable Tools werden kopiert; ZIP-Dateien werden jeweils in einen eigenen Unterordner entpackt.
-- Syntaxprüfung der eingebundenen PowerShell-Skripte, XML-/Platzhalterprüfung, gezieltes Cleanup alter WIM-Mounts, Build-Protokoll und SHA256-Prüfsumme.
-- Build-Profile für Edition, Antwortdatei, Tools-Ordner und vier einzeln schaltbare Windows-Anpassungsgruppen.
+- Optionale portable Tools werden kopiert; ZIP-Dateien werden jeweils in einen eigenen Unterordner entpackt. Beim ersten Anmelden entsteht auf dem Desktop des angemeldeten Benutzers eine Verknüpfung namens „Tools“ zu C:\ISO-Werkstatt\Tools. Sie wird unabhängig von den vier Anpassungsschaltern angelegt, sofern der Ordner vorhanden ist; das Ergebnis steht im FirstLogon-Log.
+- Syntaxprüfung der eingebundenen PowerShell-Skripte, XML-/Platzhalterprüfung, gezieltes Cleanup alter WIM-Mounts, Build-Protokoll, SHA256-Prüfsumme und JSON-Status/Ergebnis pro Lauf.
+- Build-Profile für Zielsystem, Edition, Antwortdatei, Tools-Ordner und vier einzeln schaltbare Windows-Anpassungsgruppen. Windows 11 ist freigegeben; Windows 10 und Server 2022/2025 sind als Zuordnung vorbereitet, aber noch gesperrt.
+- Exklusive Build-Sperre, einheitliche Schritte 1–10 und FirstLogon-Abschlussbericht.
 
 ## Voraussetzungen
 
@@ -50,9 +51,10 @@ $env:ISO_LAB_PASSWORD = Read-Host "Kennwort für LabAdmin"
 | `-VirtioIso` | Pfad zur VirtIO-ISO | Pflichtangabe |
 | `-Profile` | Dateiname unter `config/`, ohne `.psd1` | `lab-config` |
 | `-Edition` | Überschreibt die Edition aus dem Profil | Profilwert |
-| `-Version` | Versionsbezeichnung für Ausgabe und Dateiname | `0.6.0` |
+| `-Version` | Versionsbezeichnung für Ausgabe und Dateiname | `0.7.0` |
+| `-RunId` | Eindeutige GUID zur Zuordnung von Log und JSON-Status | Automatisch neu erzeugt |
 
-Der Versionsstandard im Skript ist weiterhin `0.6.0`. Für entsprechend benannte v0.7-Artefakte `-Version "0.7.0"` ausdrücklich angeben.
+Der Versionsstandard ist jetzt `0.7.0`; der bisherige Aufruf bleibt gültig. Mit `-Version` lässt sich der Wert überschreiben. Die Versionsbezeichnung beginnt mit einem Buchstaben oder einer Ziffer und darf danach auch Punkte, Unterstriche und Bindestriche enthalten.
 
 ## Build-Profile
 
@@ -60,17 +62,18 @@ Das Standardprofil `config/lab-config.psd1` enthält die bisherigen Einstellunge
 
 ```powershell
 @{
+    TargetOS       = "Windows11"
     Edition        = "Windows 11 Pro"
     AnswerTemplate = "answer\Autounattend.xml"
     ToolsDirectory = "tools"
 }
 ```
 
-Die Pfade beziehen sich auf das Repository. Alle drei Einstellungen sind erforderlich und müssen nicht leere Zeichenfolgen sein. Unbekannte Schlüssel und fehlende Profile führen vor den ISO-Arbeiten zum Abbruch.
+Die Pfade beziehen sich auf das Repository. Edition, AnswerTemplate und ToolsDirectory sind erforderlich und müssen nicht leere Zeichenfolgen sein. Unbekannte Schlüssel und fehlende Profile führen vor den ISO-Arbeiten zum Abbruch.
 
 Für ein weiteres Profil die Datei beispielsweise nach `config/test.psd1` kopieren, die Werte anpassen und beim Build zusätzlich `-Profile test` angeben. Profilnamen beginnen mit einem Buchstaben oder einer Ziffer und dürfen anschließend auch Bindestriche und Unterstriche enthalten. Ein ausdrücklich übergebenes `-Edition` hat Vorrang vor dem Profilwert.
 
-Die Profile steuern keine Treiber oder zusätzlichen Dienste. Kennwörter gehören nicht ins Profil; dafür wird weiterhin `ISO_LAB_PASSWORD` verwendet.
+Die optionale Angabe `TargetOS` bestimmt den VirtIO-Unterordner; ohne Angabe gilt `Windows11`. Weitere Zielsysteme sind noch nicht für Builds freigegeben. Zusätzliche Dienste werden hier nicht gesteuert. Kennwörter gehören nicht ins Profil; dafür wird weiterhin `ISO_LAB_PASSWORD` verwendet.
 
 ### Windows-Anpassungen auswählen
 
@@ -93,15 +96,16 @@ Der Builder schreibt die vier aufgelösten Schalter nach `C:\ISO-Werkstatt\scrip
 
 ## Ablauf und Ergebnisse
 
-1. Protokoll starten, Profil laden und Voraussetzungen prüfen.
-2. Syntax von `Search.ps1`, `Explorer.ps1`, `WindowsDefaults.ps1`, `Edge.ps1` und `FirstLogon.ps1` prüfen.
-3. Windows-ISO einhängen, nach `build/iso-root/` kopieren und wieder aushängen.
-4. VirtIO-Komponenten nach `build/virtio/` extrahieren.
-5. Edition ermitteln, alte Mounts an den beiden vorgesehenen Build-Mountpfaden verwerfen und Treiber integrieren.
-6. Antwortdatei erzeugen, XML und verbliebene Platzhalter prüfen; Skripte, Guest Agent und Tools in die OEM-Struktur kopieren.
-7. BIOS-/UEFI-bootfähige ISO mit `oscdimg` erstellen und dessen Exitcode prüfen.
-8. SHA256 berechnen, Prüfsummendatei schreiben und Ergebnis ausgeben.
-
+1. Protokoll und Statusdatei anlegen, Build sperren, Profil/Voraussetzungen und Skriptsyntax prüfen.
+2. Windows-ISO nach build/iso-root kopieren.
+3. VirtIO-Komponenten extrahieren.
+4. Edition ermitteln, alte WIM-Mounts gezielt bereinigen und Treiber integrieren.
+5. Autounattend.xml erzeugen und prüfen.
+6. OEM-Struktur und Guest-Agent-Paket vorbereiten.
+7. Skripte und Anpassungsschalter übernehmen.
+8. Portable Tools übernehmen.
+9. ISO mit oscdimg erstellen.
+10. SHA256 und Ergebnis speichern.
 Für das Standardprofil mit `-Version "0.7.0"` entstehen:
 
 ```text
@@ -109,7 +113,8 @@ build/
   ISO-Werkstatt-lab-config-v0.7.0.iso
   ISO-Werkstatt-lab-config-v0.7.0.iso.sha256
   logs/
-    build-<Zeitstempel>-<eindeutige ID>.log
+    build-<RunId>.log
+    build-<RunId>.json
 ```
 
 Die Prüfsummendatei enthält `SHA256 *ISO-Dateiname`. Zum manuellen Gegenprüfen:
@@ -121,7 +126,7 @@ Get-Content -LiteralPath ".\build\ISO-Werkstatt-lab-config-v0.7.0.iso.sha256"
 
 Jeder Lauf erhält ein eigenes Transcript. Bei abgefangenen Fehlern wird die Fehlermeldung vor dem Abschluss des Logs ausgegeben und der Fehler weitergereicht. Ein hart beendeter Prozess kann das Log nicht regulär abschließen.
 
-Verschiedene Profile erhalten verschiedene ISO-Dateinamen. Für dasselbe Profil und dieselbe Version bleibt der Zielname identisch. Die Arbeitsverzeichnisse werden gemeinsam verwendet: Builds deshalb nacheinander ausführen. Bestehende ISOs mit dem früheren Namen werden nicht automatisch umbenannt oder entfernt.
+Verschiedene Profile erhalten verschiedene ISO-Dateinamen. Für dasselbe Profil und dieselbe Version bleibt der Zielname identisch. Die Arbeitsverzeichnisse werden gemeinsam verwendet: Ein zweiter Build desselben Repository-Verzeichnisses wird durch eine Dateisperre abgewiesen. Die Datei build/build.lock bleibt liegen; nur ein geöffneter Dateihandle bedeutet eine aktive Sperre. Bestehende ISOs mit dem früheren Namen werden nicht automatisch umbenannt oder entfernt.
 
 ## Protokolle in der installierten VM
 
@@ -129,7 +134,8 @@ Unter `C:\ISO-Werkstatt\` liegen:
 
 - `setup.log`: Ausführung von SetupComplete und Guest-Agent-Exitcode.
 - `qemu-ga-install.log`: MSI-Installationsprotokoll des QEMU Guest Agent.
-- `firstlogon.log`: Windows-Anpassungen beim ersten Anmelden.
+- `firstlogon.log`: Windows-Anpassungen mit Abschlusszusammenfassung. Fehlerhafte Gruppen verhindern nicht die Ausführung der übrigen Gruppen.
+- `firstlogon-result.json`: Erfolg, Fehler und übersprungene Schritte beim ersten Anmelden.
 - `Tools\`: die übernommenen portablen Werkzeuge.
 
 ## Repository-Struktur
@@ -137,6 +143,9 @@ Unter `C:\ISO-Werkstatt\` liegen:
 | Pfad | Inhalt |
 | --- | --- |
 | `build.ps1` | Build-Ablauf und Prüfungen |
+| `BuildSupport.ps1` | Sperre, Zielzuordnung und Statusdatei |
+| `docs/` | Builder-Schnittstelle und gemeinsamer VM-Testplan |
+| `tests/` | Isolierte Tests ohne echte Installationsmedien |
 | `answer/` | Vorlagen für unbeaufsichtigtes Windows Setup |
 | `config/` | Build-Profile im PSD1-Format |
 | `scripts/` | SetupComplete und Windows-Anpassungsskripte |
@@ -147,8 +156,15 @@ Unter `C:\ISO-Werkstatt\` liegen:
 
 Build-Ausgaben, ISO-Dateien und Logs sind durch `.gitignore` ausgeschlossen.
 
+## Status für die spätere Oberfläche
+
+Jeder Lauf schreibt eine JSON-Datei neben sein Log. Sie enthält Running, Succeeded oder Failed, den aktuellen Schritt, Profil/Zielsystem, Zeitpunkte und Dauer sowie bei Erfolg ISO-Pfad, Größe und SHA256. Nach einem harten Prozessabbruch kann der Status auf Running stehen bleiben; Prozessende und Status müssen gemeinsam ausgewertet werden.
+
+Die genaue Schnittstelle steht in [docs/BUILDER-INTERFACE.md](docs/BUILDER-INTERFACE.md). Der [gemeinsame Testplan](docs/TESTPLAN.md) bündelt die Änderungen in einen Windows-11-Installationsdurchlauf. Die lokalen Ersatzmedien-Tests ersetzen keinen echten DISM-/VM-Test.
 ## Noch offen
 
+- Eigene Antwortdateien und Installationstests für Windows 10, Server 2022 und Server 2025; bei Server zusätzlich Desktop Experience/Core berücksichtigen.
+- Grafische Oberfläche auf Basis der dokumentierten Builder-Schnittstelle.
 - RDP und OpenSSH als optionale Anpassungen.
 - Optionale Softwarepakete: `Packages.ps1` ist bisher nicht in den Build-/FirstLogon-Ablauf eingebunden.
 - Weitere Profiloptionen über die vier vorhandenen Anpassungsgruppen hinaus.

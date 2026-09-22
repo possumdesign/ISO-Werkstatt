@@ -38,27 +38,35 @@ function Invoke-FirstLogonStep {
 "Time: $($FirstLogonStarted.ToString('o'))" | Out-File $Log -Append
 
 try {
-    $AdjustmentNames = @("Search", "Explorer", "WindowsDefaults", "Edge")
+    $IsCore=$false
+    $TargetPath=Join-Path $ScriptRoot 'target.psd1'
+    if(Test-Path -LiteralPath $TargetPath){
+        $RuntimeTarget=Import-PowerShellDataFile -LiteralPath $TargetPath -ErrorAction Stop
+        if($RuntimeTarget.TargetOS -notin @('Windows11','Windows10','Server2022','Server2025')){throw 'Ungültiges Laufzeit-Zielsystem.'}
+        if($RuntimeTarget.InstallationMode -notin @('Desktop','Core')){throw 'Ungültiger Laufzeit-InstallationMode.'}
+        $IsCore=$RuntimeTarget.InstallationMode -eq 'Core'
+    }
+    $AdjustmentNames = @("Search", "Explorer", "WindowsDefaults", "Edge", "UBlockLite")
     $Adjustments = Import-PowerShellDataFile -LiteralPath (Join-Path $ScriptRoot "adjustments.psd1") -ErrorAction Stop
-    foreach ($Name in $AdjustmentNames) {
+    foreach ($Name in ($AdjustmentNames + @("Tools"))) {
         if ($Adjustments[$Name] -isnot [bool]) {
             throw "Ungültiger oder fehlender Anpassungsschalter: $Name"
         }
     }
     foreach ($Name in $Adjustments.Keys) {
-        if ($Name -notin $AdjustmentNames) {
+        if ($Name -notin ($AdjustmentNames + @("Tools"))) {
             throw "Unbekannter Anpassungsschalter: $Name"
         }
     }
 
     foreach ($Name in $AdjustmentNames) {
-        Invoke-FirstLogonStep -StepName $Name -Enabled $Adjustments[$Name] -Action {
+        Invoke-FirstLogonStep -StepName $Name -Enabled ($Adjustments[$Name] -and -not $IsCore) -Action {
             & (Join-Path $ScriptRoot "$Name.ps1")
         }
     }
 
     $ToolsPath = "C:\ISO-Werkstatt\Tools"
-    Invoke-FirstLogonStep -StepName "ToolsShortcut" -Enabled (Test-Path -LiteralPath $ToolsPath -PathType Container) -Action {
+    Invoke-FirstLogonStep -StepName "ToolsShortcut" -Enabled (-not $IsCore -and $Adjustments.Tools -and (Test-Path -LiteralPath $ToolsPath -PathType Container)) -Action {
         $DesktopPath = [Environment]::GetFolderPath("DesktopDirectory")
         if ([string]::IsNullOrWhiteSpace($DesktopPath)) {
             throw "Desktop-Verzeichnis konnte nicht ermittelt werden."
@@ -74,7 +82,7 @@ try {
         "Tools-Verknüpfung erstellt: $ShortcutPath"
     }
 
-    Invoke-FirstLogonStep -StepName "OpenExplorer" -Enabled $Adjustments.Explorer -Action {
+    Invoke-FirstLogonStep -StepName "OpenExplorer" -Enabled ($Adjustments.Explorer -and -not $IsCore) -Action {
         Start-Sleep -Seconds 3
         Start-Process explorer.exe "shell:MyComputerFolder" -ErrorAction Stop
         "Dieser PC geöffnet."

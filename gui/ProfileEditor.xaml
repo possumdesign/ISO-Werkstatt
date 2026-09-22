@@ -1,0 +1,35 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="Profil bearbeiten" Width="650" Height="810" MinWidth="580" MinHeight="620" WindowStartupLocation="CenterOwner" Background="#F3F5F8" FontFamily="Segoe UI" FontSize="14">
+ <Window.Resources>
+  <Style TargetType="TextBox"><Setter Property="Padding" Value="8,6"/><Setter Property="Margin" Value="0,4,0,10"/></Style>
+  <Style TargetType="CheckBox"><Setter Property="Margin" Value="0,5"/></Style>
+  <Style TargetType="Button"><Setter Property="Padding" Value="18,9"/></Style>
+ </Window.Resources>
+ <Grid Margin="24">
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,12,0">
+   <TextBlock Text="Profil bearbeiten" FontSize="22" FontWeight="SemiBold"/>
+   <TextBlock Text="Bearbeitet die Vorgaben für die erkannte ISO und Einsatzart. Zielsystem und Installationsvariante werden automatisch gewählt. Kennwort und Produktschlüssel werden nicht gespeichert." TextWrapping="Wrap" Margin="0,8,0,16"/>
+   <TextBlock Text="Profilname"/><TextBox x:Name="ProfileName"/>
+   <TextBlock Text="Zielsystem"/><ComboBox x:Name="TargetOS" Padding="8,6" Margin="0,4,0,10"/>
+   <TextBlock Text="Installationsvariante"/><ComboBox x:Name="InstallationMode" Padding="8,6" Margin="0,4,0,10"/>
+   <TextBlock Text="Edition"/><TextBox x:Name="Edition"/>
+   <TextBlock Text="Lokaler Kontoname"/><TextBox x:Name="LocalUserName"/>
+   <TextBlock Text="Antwortdatei"/><TextBox x:Name="AnswerTemplate"/>
+   <TextBlock Text="Tools-Verzeichnis"/><TextBox x:Name="ToolsDirectory"/>
+   <TextBlock Text="Pfade relativ zum Repository. Core: Desktop-Anpassungen ausschalten. Neue Zielsysteme zuerst testen." TextWrapping="Wrap" Foreground="#607184" Margin="0,0,0,8"/>
+   <CheckBox x:Name="IncludeVirtioDrivers" Content="VirtIO-Treiber integrieren"/>
+   <CheckBox x:Name="Search" Content="Bing / Websuche abschalten"/>
+   <CheckBox x:Name="Explorer" Content="Explorer anpassen"/>
+   <CheckBox x:Name="WindowsDefaults" Content="Windows-Vorgaben anpassen"/>
+   <CheckBox x:Name="Edge" Content="Edge anpassen"/>
+   <CheckBox x:Name="Tools" Content="Tools-Ordner und Desktop-Verknüpfung"/>
+   <CheckBox x:Name="UBlockLite" Content="uBlock Origin Lite installieren"/>
+   <CheckBox x:Name="QemuGuestAgent" Content="QEMU Guest Agent installieren"/>
+  </StackPanel></ScrollViewer>
+  <StackPanel Grid.Row="1">
+   <TextBlock x:Name="Error" Foreground="#AC3030" TextWrapping="Wrap" Margin="0,8"/>
+   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="Cancel" Content="Abbrechen" Margin="0,0,8,0" IsCancel="True"/><Button x:Name="Save" Content="Speichern" Background="#126C60" Foreground="White"/></StackPanel>
+  </StackPanel>
+ </Grid>
+</Window>

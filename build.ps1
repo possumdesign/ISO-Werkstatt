@@ -2,8 +2,8 @@
     [Parameter(Mandatory = $true)]
     [string]$WindowsIso,
 
-    [Parameter(Mandatory = $true)]
     [string]$VirtioIso,
+    [string]$LocalUserName,
 
     [string]$Edition = "Windows 11 Pro",
 
@@ -13,6 +13,10 @@
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]*$')]
     [string]$Version = "0.7.0",
 
+    [ValidateSet('Profile','On','Off')][string]$Tools = 'Profile',
+    [ValidateSet('Profile','On','Off')][string]$WebSearch = 'Profile',
+    [ValidateSet('Profile','On','Off')][string]$UBlockLite = 'Profile',
+    [ValidateSet('Profile','On','Off')][string]$QemuGuestAgent = 'Profile',
     [guid]$RunId = [guid]::NewGuid()
 )
 
@@ -74,52 +78,34 @@ if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) {
     throw "Build-Profil fehlt: $ProfilePath"
 }
 $BuildProfile = Import-PowerShellDataFile -LiteralPath $ProfilePath -ErrorAction Stop
-$ProfileKeys = @("Edition", "AnswerTemplate", "ToolsDirectory")
-foreach ($Key in $ProfileKeys) {
-    if ($BuildProfile[$Key] -isnot [string] -or [string]::IsNullOrWhiteSpace($BuildProfile[$Key])) {
-        throw "Build-Profil '$Profile': '$Key' muss eine nicht leere Zeichenfolge sein."
-    }
-}
-foreach ($Key in $BuildProfile.Keys) {
-    if ($Key -notin ($ProfileKeys + @("Adjustments", "TargetOS"))) {
-        throw "Build-Profil '$Profile': unbekannte Einstellung '$Key'."
-    }
-}
-# Ohne Zielangabe bleiben bestehende Profile Windows-11-Profile.
-$TargetOS = "Windows11"
-if ($BuildProfile.ContainsKey("TargetOS")) {
-    if ($BuildProfile.TargetOS -isnot [string] -or [string]::IsNullOrWhiteSpace($BuildProfile.TargetOS)) {
-        throw "Build-Profil '$Profile': 'TargetOS' muss eine nicht leere Zeichenfolge sein."
-    }
-    $TargetOS = $BuildProfile.TargetOS
-}
-$TargetConfig = Get-BuildTarget -TargetOS $TargetOS
-$VirtioTarget = $TargetConfig.VirtioTarget
+$BuildProfile = Resolve-BuildProfile -Data $BuildProfile
+$TargetOS = $BuildProfile.TargetOS
+$VirtioTarget = $BuildProfile.VirtioTarget
 $BuildState.TargetOS = $TargetOS
 $BuildState.VirtioTarget = $VirtioTarget
-if (-not $TargetConfig.Supported) {
+$BuildState['InstallationMode'] = $BuildProfile.InstallationMode
+$BuildState['InstallationTested'] = $BuildProfile.InstallationTested
+if (-not $BuildProfile.Supported) {
     throw "Zielsystem '$TargetOS' ist vorbereitet, aber noch nicht für Builds freigegeben. Antwortdatei und Installationstest stehen aus."
 }
-# Fehlende Schalter behalten das bisherige Verhalten (alle aktiv).
-$AdjustmentNames = @("Search", "Explorer", "WindowsDefaults", "Edge")
-$Adjustments = [ordered]@{}
-foreach ($Name in $AdjustmentNames) {
-    $Adjustments[$Name] = $true
-}
-if ($BuildProfile.ContainsKey("Adjustments")) {
-    if ($BuildProfile.Adjustments -isnot [System.Collections.IDictionary]) {
-        throw "Build-Profil '$Profile': 'Adjustments' muss eine Hashtable sein."
-    }
-    foreach ($Name in $BuildProfile.Adjustments.Keys) {
-        if ($Name -notin $AdjustmentNames) {
-            throw "Build-Profil '$Profile': unbekannte Anpassung '$Name'."
-        }
-        if ($BuildProfile.Adjustments[$Name] -isnot [bool]) {
-            throw "Build-Profil '$Profile': '$Name' muss ein Boolean sein."
-        }
-        $Adjustments[$Name] = $BuildProfile.Adjustments[$Name]
-    }
-}
+if (-not $PSBoundParameters.ContainsKey('LocalUserName')) { $LocalUserName = $BuildProfile.LocalUserName }
+$LocalUserName = Test-BuildUserName -Value $LocalUserName
+$BuildState['LocalUserName'] = $LocalUserName
+$IncludeVirtioDrivers = $BuildProfile.IncludeVirtioDrivers
+$Adjustments = $BuildProfile.Adjustments
+$Adjustments.Search = Resolve-BuildChoice -Choice $WebSearch -Default $Adjustments.Search
+$Adjustments['UBlockLite'] = Resolve-BuildChoice -Choice $UBlockLite -Default $BuildProfile.Features.UBlockLite
+$Adjustments['Tools'] = Resolve-BuildChoice -Choice $Tools -Default $BuildProfile.Features.Tools
+$IncludeQemu = Resolve-BuildChoice -Choice $QemuGuestAgent -Default $BuildProfile.Features.QemuGuestAgent
+Assert-BuildTargetOptions -TargetOS $TargetOS -InstallationMode $BuildProfile.InstallationMode -Adjustments $Adjustments
+$NeedVirtioIso = $IncludeVirtioDrivers -or $IncludeQemu
+$AdjustmentNames = @('Search','Explorer','WindowsDefaults','Edge','UBlockLite','Tools')
+$SetupProductKey = ConvertTo-SetupProductKey -Value $env:ISO_PRODUCT_KEY
+$BuildState['IncludeVirtioDrivers'] = $IncludeVirtioDrivers
+$BuildState['QemuGuestAgent'] = $IncludeQemu
+$BuildState['Adjustments'] = $Adjustments
+$BuildState['ProductKeyProvided'] = -not [string]::IsNullOrEmpty($SetupProductKey)
+Write-Host "VirtIO-Treiber: $IncludeVirtioDrivers; QEMU Guest Agent: $IncludeQemu"
 foreach ($Name in $AdjustmentNames) {
     Write-Host ("Anpassung {0}: {1}" -f $Name, $Adjustments[$Name])
 }
@@ -141,7 +127,7 @@ if (-not (Test-Path $WindowsIso)) {
     throw "Windows-ISO nicht gefunden: $WindowsIso"
 }
 
-if (-not (Test-Path $VirtioIso)) {
+if ($NeedVirtioIso -and ([string]::IsNullOrWhiteSpace($VirtioIso) -or -not (Test-Path -LiteralPath $VirtioIso -PathType Leaf))) {
     throw "VirtIO-ISO nicht gefunden: $VirtioIso"
 }
 
@@ -159,6 +145,7 @@ $RuntimeScripts = @(
     "Explorer.ps1",
     "WindowsDefaults.ps1",
     "Edge.ps1",
+    "UBlockLite.ps1",
     "FirstLogon.ps1"
 )
 
@@ -221,8 +208,14 @@ if (-not $env:ISO_LAB_PASSWORD) {
     throw "Umgebungsvariable ISO_LAB_PASSWORD ist nicht gesetzt."
 }
 
+if($TargetOS -like 'Server*') {
+    [xml]$ServerAnswer=Get-Content -LiteralPath $AnswerTemplate -Raw
+    $serverNs=[Xml.XmlNamespaceManager]::new($ServerAnswer.NameTable);$serverNs.AddNamespace('u','urn:schemas-microsoft-com:unattend')
+    $admin=$ServerAnswer.SelectSingleNode('//u:UserAccounts/u:AdministratorPassword/u:Value',$serverNs)
+    if(-not $admin -or $admin.InnerText -ne '__LAB_PASSWORD__'){throw 'Serverprofile benötigen eine Server-Antwortdatei mit AdministratorPassword-Platzhalter.'}
+}
 $WindowsIsoPath = (Resolve-Path $WindowsIso).Path
-$VirtioIsoPath  = (Resolve-Path $VirtioIso).Path
+$VirtioIsoPath = if ($NeedVirtioIso) { (Resolve-Path -LiteralPath $VirtioIso).Path } else { $null }
 
 # ------------------------------------------------------------
 # PowerShell-Skripte validieren
@@ -292,23 +285,12 @@ New-Item `
 
 
 # Windows-ISO mounten
-$WinDisk = $null
+$WinIsoContext = @{}
+$WinIsoFailure = $null
 
 try {
 
-    Write-Host "      Mounte Windows-ISO..."
-
-    $WinDisk = Mount-DiskImage `
-        -ImagePath $WindowsIsoPath `
-        -PassThru
-
-    $WinVolume = $WinDisk | Get-Volume
-
-    if (-not $WinVolume.DriveLetter) {
-        throw "Windows-ISO wurde gemountet, besitzt aber keinen Laufwerksbuchstaben."
-    }
-
-    $WinDrive = "$($WinVolume.DriveLetter):"
+    $WinDrive = Open-BuildIso -ImagePath $WindowsIsoPath -Label "Windows-ISO" -Context $WinIsoContext
 
     Write-Host "      Windows-ISO: $WinDrive"
 
@@ -336,24 +318,18 @@ try {
         }
 
 }
-finally {
-
-    if ($WinDisk) {
-        Write-Host "      Hänge Windows-ISO aus..."
-
-        Dismount-DiskImage `
-            -ImagePath $WindowsIsoPath | Out-Null
-    }
+catch {
+    $WinIsoFailure = $_
+    throw
 }
-
-
+finally {
+    Close-BuildIso -Context $WinIsoContext -PreserveError ([bool]$WinIsoFailure)
+}
 # Kontrolle
 $InstallWim = Join-Path $IsoRoot "sources\install.wim"
 $BootWim    = Join-Path $IsoRoot "sources\boot.wim"
 
-if (-not (Test-Path $InstallWim)) {
-    throw "install.wim wurde im Windows-ISO nicht gefunden."
-}
+$InstallSource = Get-BuildInstallImagePath -MediaRoot $IsoRoot
 
 if (-not (Test-Path $BootWim)) {
     throw "boot.wim wurde im Windows-ISO nicht gefunden."
@@ -368,103 +344,91 @@ Write-Host ""
 
 Set-BuildStep -State $BuildState -Path $StatePath -Number 3 -Name "VirtIO-Komponenten extrahieren"
 
-# Alten VirtIO-Staging-Bereich entfernen
-if (Test-Path $VirtioStage) {
-    Write-Host "      Entferne alten VirtIO-Staging-Bereich..."
+if ($NeedVirtioIso) {
+    # Alten VirtIO-Staging-Bereich entfernen
+    if (Test-Path $VirtioStage) {
+        Write-Host "      Entferne alten VirtIO-Staging-Bereich..."
 
-    Remove-Item `
-        $VirtioStage `
-        -Recurse `
-        -Force
-}
-
-New-Item `
-    -ItemType Directory `
-    -Force `
-    $VirtioStage | Out-Null
-
-
-$VirtDisk = $null
-
-try {
-
-    Write-Host "      Mounte VirtIO-ISO..."
-
-    $VirtDisk = Mount-DiskImage `
-        -ImagePath $VirtioIsoPath `
-        -PassThru
-
-    $VirtVolume = $VirtDisk |
-        Get-Volume |
-        Where-Object DriveLetter |
-        Select-Object -First 1
-
-    if (-not $VirtVolume) {
-        throw "VirtIO-ISO wurde gemountet, besitzt aber keinen Laufwerksbuchstaben."
-    }
-
-    $VirtDrive = "$($VirtVolume.DriveLetter):"
-
-    Write-Host "      VirtIO-ISO: $VirtDrive"
-
-
-    # Zum Zielsystem passende x64-Treiber
-    $VirtioDrivers = @{
-        "vioscsi"   = "$VirtDrive\vioscsi\$VirtioTarget\amd64"
-        "NetKVM"    = "$VirtDrive\NetKVM\$VirtioTarget\amd64"
-        "Balloon"   = "$VirtDrive\Balloon\$VirtioTarget\amd64"
-        "vioserial" = "$VirtDrive\vioserial\$VirtioTarget\amd64"
-    }
-
-
-    foreach ($DriverName in $VirtioDrivers.Keys) {
-
-        $Source = $VirtioDrivers[$DriverName]
-        $Target = Join-Path $VirtioStage $DriverName
-
-        if (-not (Test-Path $Source)) {
-            throw "VirtIO-Treiber fehlt: $Source"
-        }
-
-        Write-Host "      -> $DriverName"
-
-        Copy-Item `
-            $Source `
-            $Target `
+        Remove-Item `
+            $VirtioStage `
             -Recurse `
             -Force
     }
 
+    New-Item `
+        -ItemType Directory `
+        -Force `
+        $VirtioStage | Out-Null
 
-    # QEMU Guest Agent
-    $GuestAgentSource = "$VirtDrive\guest-agent\qemu-ga-x86_64.msi"
-    $GuestAgentTarget = Join-Path $VirtioStage "qemu-ga-x86_64.msi"
 
-    if (-not (Test-Path $GuestAgentSource)) {
-        throw "QEMU Guest Agent nicht gefunden: $GuestAgentSource"
+    $VirtIsoContext = @{}
+    $VirtIsoFailure = $null
+
+    try {
+
+        $VirtDrive = Open-BuildIso -ImagePath $VirtioIsoPath -Label "VirtIO-ISO" -Context $VirtIsoContext
+
+        Write-Host "      VirtIO-ISO: $VirtDrive"
+
+
+        if ($IncludeVirtioDrivers) {
+            # Zum Zielsystem passende x64-Treiber
+            $VirtioDrivers = @{
+                "vioscsi"   = "$VirtDrive\vioscsi\$VirtioTarget\amd64"
+                "NetKVM"    = "$VirtDrive\NetKVM\$VirtioTarget\amd64"
+                "Balloon"   = "$VirtDrive\Balloon\$VirtioTarget\amd64"
+                "vioserial" = "$VirtDrive\vioserial\$VirtioTarget\amd64"
+            }
+
+
+            foreach ($DriverName in $VirtioDrivers.Keys) {
+
+                $Source = $VirtioDrivers[$DriverName]
+                $Target = Join-Path $VirtioStage $DriverName
+
+                if (-not (Test-Path $Source)) {
+                    throw "VirtIO-Treiber fehlt: $Source"
+                }
+
+                Write-Host "      -> $DriverName"
+
+                Copy-Item `
+                    $Source `
+                    $Target `
+                    -Recurse `
+                    -Force
+            }
+
+
+        }
+        if ($IncludeQemu) {
+            # QEMU Guest Agent
+            $GuestAgentSource = "$VirtDrive\guest-agent\qemu-ga-x86_64.msi"
+            $GuestAgentTarget = Join-Path $VirtioStage "qemu-ga-x86_64.msi"
+
+            if (-not (Test-Path $GuestAgentSource)) {
+                throw "QEMU Guest Agent nicht gefunden: $GuestAgentSource"
+            }
+
+            Write-Host "      -> QEMU Guest Agent"
+
+            Copy-Item `
+                $GuestAgentSource `
+                $GuestAgentTarget `
+                -Force
+
+        }
     }
 
-    Write-Host "      -> QEMU Guest Agent"
-
-    Copy-Item `
-        $GuestAgentSource `
-        $GuestAgentTarget `
-        -Force
-
-}
-finally {
-
-    if ($VirtDisk) {
-
-        Write-Host "      Hänge VirtIO-ISO aus..."
-
-        Dismount-DiskImage `
-            -ImagePath $VirtioIsoPath | Out-Null
+    catch {
+        $VirtIsoFailure = $_
+        throw
     }
-}
-
-
-Write-Host "      VirtIO-Komponenten erfolgreich vorbereitet."
+    finally {
+        Close-BuildIso -Context $VirtIsoContext -PreserveError ([bool]$VirtIsoFailure)
+    }
+    Write-Host "      VirtIO-Komponenten erfolgreich vorbereitet."
+} else { Write-Host '      VirtIO-ISO nicht benötigt; übersprungen.' }
 Write-Host ""
 
 # ------------------------------------------------------------
@@ -474,7 +438,7 @@ Write-Host ""
 Set-BuildStep -State $BuildState -Path $StatePath -Number 4 -Name "Edition ermitteln und Treiber integrieren"
 
 # Gewünschte Edition im install.wim suchen
-$Images = Get-WindowsImage -ImagePath $InstallWim
+$Images = Get-WindowsImage -ImagePath $InstallSource
 
 $EditionMatches = @(
     $Images | Where-Object {
@@ -491,6 +455,18 @@ if ($EditionMatches.Count -gt 1) {
 }
 
 $ImageIndex = $EditionMatches[0].ImageIndex
+$ImageDetails=Get-WindowsImage -ImagePath $InstallSource -Index $ImageIndex -ErrorAction Stop
+Assert-BuildImageTarget -Image $ImageDetails -TargetOS $TargetOS -InstallationMode $BuildProfile.InstallationMode
+$BuildState['ImageVersion']=[string]$ImageDetails.Version
+$BuildState['ImageInstallationType']=[string]$ImageDetails.InstallationType
+if([IO.Path]::GetExtension($InstallSource) -ieq '.esd'){
+    Write-Host '      Exportiere die gewählte ESD-Edition nach install.wim...'
+    Export-WindowsImage -SourceImagePath $InstallSource -SourceIndex $ImageIndex -DestinationImagePath $InstallWim -CompressionType Max -CheckIntegrity -ErrorAction Stop | Out-Null
+    $exported=@(Get-WindowsImage -ImagePath $InstallWim -ErrorAction Stop)
+    if($exported.Count -ne 1 -or $exported[0].ImageName -ne $Edition){throw 'Die exportierte install.wim enthält nicht die erwartete Edition.'}
+    $ImageIndex=$exported[0].ImageIndex
+    Remove-Item -LiteralPath $InstallSource -Force -ErrorAction Stop
+}
 
 Write-Host "      Edition : $Edition"
 Write-Host "      WIM-Index: $ImageIndex"
@@ -500,165 +476,167 @@ Write-Host "      WIM-Index: $ImageIndex"
 # Alte WIM-Mounts bereinigen und Mount-Verzeichnisse vorbereiten
 # ------------------------------------------------------------
 
-Write-Host "      Prüfe vorhandene WIM-Mounts..."
+if ($IncludeVirtioDrivers) {
+    Write-Host "      Prüfe vorhandene WIM-Mounts..."
 
-$MountedImages = @(
-    Get-WindowsImage -Mounted -ErrorAction SilentlyContinue
-)
-
-foreach ($MountDir in @($BootMount, $InstallMount)) {
-
-    $TargetPath = [System.IO.Path]::GetFullPath($MountDir).TrimEnd("\")
-
-    $ExistingMount = $MountedImages | Where-Object {
-
-        if (-not $_.Path) {
-            return $false
-        }
-
-        $ExistingPath = [System.IO.Path]::GetFullPath($_.Path).TrimEnd("\")
-
-        $ExistingPath -ieq $TargetPath
-    }
-
-    if ($ExistingMount) {
-
-        Write-Host "      Alter WIM-Mount gefunden: $MountDir" `
-            -ForegroundColor Yellow
-
-        Write-Host "      Verwerfe alten Mount..."
-
-        Dismount-WindowsImage `
-            -Path $MountDir `
-            -Discard `
-            -ErrorAction Stop | Out-Null
-    }
-
-    if (Test-Path $MountDir) {
-
-        Write-Host "      Bereinige Mount-Verzeichnis: $MountDir"
-
-        Remove-Item `
-            $MountDir `
-            -Recurse `
-            -Force
-    }
-
-    New-Item `
-        -ItemType Directory `
-        -Path $MountDir `
-        -Force | Out-Null
-}
-
-Write-Host "      [OK] WIM-Mount-Verzeichnisse bereit"
-
-# ------------------------------------------------------------
-# boot.wim
-# ------------------------------------------------------------
-
-Write-Host "      Mounte boot.wim Index 2..."
-
-$BootMounted = $false
-
-try {
-
-    Mount-WindowsImage `
-        -ImagePath $BootWim `
-        -Index 2 `
-        -Path $BootMount | Out-Null
-
-    $BootMounted = $true
-
-    Write-Host "      -> boot.wim: vioscsi"
-
-    Add-WindowsDriver `
-        -Path $BootMount `
-        -Driver (Join-Path $VirtioStage "vioscsi") `
-        -Recurse | Out-Null
-
-    Write-Host "      -> boot.wim: NetKVM"
-
-    Add-WindowsDriver `
-        -Path $BootMount `
-        -Driver (Join-Path $VirtioStage "NetKVM") `
-        -Recurse | Out-Null
-
-    Write-Host "      Speichere boot.wim..."
-
-    Dismount-WindowsImage `
-        -Path $BootMount `
-        -Save | Out-Null
-
-    $BootMounted = $false
-}
-catch {
-
-    if ($BootMounted) {
-        Dismount-WindowsImage `
-            -Path $BootMount `
-            -Discard `
-            -ErrorAction SilentlyContinue | Out-Null
-    }
-
-    throw
-}
-
-
-# ------------------------------------------------------------
-# install.wim
-# ------------------------------------------------------------
-
-Write-Host "      Mounte install.wim Index $ImageIndex..."
-
-$InstallMounted = $false
-
-try {
-
-    Mount-WindowsImage `
-        -ImagePath $InstallWim `
-        -Index $ImageIndex `
-        -Path $InstallMount | Out-Null
-
-    $InstallMounted = $true
-
-    $InstallDrivers = @(
-        "vioscsi",
-        "NetKVM",
-        "Balloon",
-        "vioserial"
+    $MountedImages = @(
+        Get-WindowsImage -Mounted -ErrorAction SilentlyContinue
     )
 
-    foreach ($DriverName in $InstallDrivers) {
+    foreach ($MountDir in @($BootMount, $InstallMount)) {
 
-        Write-Host "      -> install.wim: $DriverName"
+        $TargetPath = [System.IO.Path]::GetFullPath($MountDir).TrimEnd("\")
+
+        $ExistingMount = $MountedImages | Where-Object {
+
+            if (-not $_.Path) {
+                return $false
+            }
+
+            $ExistingPath = [System.IO.Path]::GetFullPath($_.Path).TrimEnd("\")
+
+            $ExistingPath -ieq $TargetPath
+        }
+
+        if ($ExistingMount) {
+
+            Write-Host "      Alter WIM-Mount gefunden: $MountDir" `
+                -ForegroundColor Yellow
+
+            Write-Host "      Verwerfe alten Mount..."
+
+            Dismount-WindowsImage `
+                -Path $MountDir `
+                -Discard `
+                -ErrorAction Stop | Out-Null
+        }
+
+        if (Test-Path $MountDir) {
+
+            Write-Host "      Bereinige Mount-Verzeichnis: $MountDir"
+
+            Remove-Item `
+                $MountDir `
+                -Recurse `
+                -Force
+        }
+
+        New-Item `
+            -ItemType Directory `
+            -Path $MountDir `
+            -Force | Out-Null
+    }
+
+    Write-Host "      [OK] WIM-Mount-Verzeichnisse bereit"
+
+    # ------------------------------------------------------------
+    # boot.wim
+    # ------------------------------------------------------------
+
+    Write-Host "      Mounte boot.wim Index 2..."
+
+    $BootMounted = $false
+
+    try {
+
+        Mount-WindowsImage `
+            -ImagePath $BootWim `
+            -Index 2 `
+            -Path $BootMount | Out-Null
+
+        $BootMounted = $true
+
+        Write-Host "      -> boot.wim: vioscsi"
 
         Add-WindowsDriver `
-            -Path $InstallMount `
-            -Driver (Join-Path $VirtioStage $DriverName) `
+            -Path $BootMount `
+            -Driver (Join-Path $VirtioStage "vioscsi") `
             -Recurse | Out-Null
+
+        Write-Host "      -> boot.wim: NetKVM"
+
+        Add-WindowsDriver `
+            -Path $BootMount `
+            -Driver (Join-Path $VirtioStage "NetKVM") `
+            -Recurse | Out-Null
+
+        Write-Host "      Speichere boot.wim..."
+
+        Dismount-WindowsImage `
+            -Path $BootMount `
+            -Save | Out-Null
+
+        $BootMounted = $false
+    }
+    catch {
+
+        if ($BootMounted) {
+            Dismount-WindowsImage `
+                -Path $BootMount `
+                -Discard `
+                -ErrorAction SilentlyContinue | Out-Null
+        }
+
+        throw
     }
 
-    Write-Host "      Speichere install.wim..."
 
-    Dismount-WindowsImage `
-        -Path $InstallMount `
-        -Save | Out-Null
+    # ------------------------------------------------------------
+    # install.wim
+    # ------------------------------------------------------------
+
+    Write-Host "      Mounte install.wim Index $ImageIndex..."
 
     $InstallMounted = $false
-}
-catch {
 
-    if ($InstallMounted) {
+    try {
+
+        Mount-WindowsImage `
+            -ImagePath $InstallWim `
+            -Index $ImageIndex `
+            -Path $InstallMount | Out-Null
+
+        $InstallMounted = $true
+
+        $InstallDrivers = @(
+            "vioscsi",
+            "NetKVM",
+            "Balloon",
+            "vioserial"
+        )
+
+        foreach ($DriverName in $InstallDrivers) {
+
+            Write-Host "      -> install.wim: $DriverName"
+
+            Add-WindowsDriver `
+                -Path $InstallMount `
+                -Driver (Join-Path $VirtioStage $DriverName) `
+                -Recurse | Out-Null
+        }
+
+        Write-Host "      Speichere install.wim..."
+
         Dismount-WindowsImage `
             -Path $InstallMount `
-            -Discard `
-            -ErrorAction SilentlyContinue | Out-Null
+            -Save | Out-Null
+
+        $InstallMounted = $false
+    }
+    catch {
+
+        if ($InstallMounted) {
+            Dismount-WindowsImage `
+                -Path $InstallMount `
+                -Discard `
+                -ErrorAction SilentlyContinue | Out-Null
+        }
+
+        throw
     }
 
-    throw
-}
-
-Write-Host "      VirtIO-Treiber erfolgreich integriert."
+    Write-Host "      VirtIO-Treiber erfolgreich integriert."
+} else { Write-Host '      VirtIO-Treiberintegration deaktiviert.' }
 Write-Host ""
 
 # ------------------------------------------------------------
@@ -709,6 +687,8 @@ if ($RemainingPlaceholders.Count -gt 0) {
     throw "Nicht ersetzte Platzhalter in Autounattend.xml: $($RemainingPlaceholders -join ', ')"
 }
 
+$Xml = Set-SetupLocalUser -Xml $Xml -UserName $LocalUserName
+$Xml = Set-SetupProductKey -Xml $Xml -ProductKey $SetupProductKey
 Write-Host "      [OK] Autounattend.xml ist gültig"
 
 Set-Content `
@@ -724,14 +704,16 @@ Set-Content `
 Set-BuildStep -State $BuildState -Path $StatePath -Number 6 -Name "OEM-Struktur vorbereiten"
 
 New-Item -ItemType Directory -Force $OemScripts | Out-Null
-New-Item -ItemType Directory -Force $OemTools | Out-Null
+if ($Adjustments.Tools) { New-Item -ItemType Directory -Force $OemTools | Out-Null }
 New-Item -ItemType Directory -Force $SetupScripts | Out-Null
-New-Item -ItemType Directory -Force $OemPackages | Out-Null
+if ($IncludeQemu) {
+    New-Item -ItemType Directory -Force $OemPackages | Out-Null
 
-Copy-Item `
-    (Join-Path $VirtioStage "qemu-ga-x86_64.msi") `
-    (Join-Path $OemPackages "qemu-ga-x86_64.msi") `
-    -Force
+    Copy-Item `
+        (Join-Path $VirtioStage "qemu-ga-x86_64.msi") `
+        (Join-Path $OemPackages "qemu-ga-x86_64.msi") `
+        -Force
+}
 
 
 # ------------------------------------------------------------
@@ -762,17 +744,23 @@ foreach ($Name in $AdjustmentNames) {
     $AdjustmentLines += "    $Name = $BooleanLiteral"
 }
 $AdjustmentLines += "}"
+@("@{", "    TargetOS = '$TargetOS'", "    InstallationMode = '$($BuildProfile.InstallationMode)'", "}") |
+    Set-Content -LiteralPath (Join-Path $OemScripts 'target.psd1') -Encoding UTF8
 $AdjustmentLines | Set-Content -LiteralPath (Join-Path $OemScripts "adjustments.psd1") -Encoding UTF8
-$SetupComplete = Join-Path $ScriptsSource "SetupComplete.cmd"
+if ($IncludeQemu) {
+    $SetupComplete = Join-Path $ScriptsSource "SetupComplete.cmd"
 
-if (-not (Test-Path $SetupComplete)) {
-    throw "SetupComplete.cmd fehlt."
+    if (-not (Test-Path $SetupComplete)) {
+        throw "SetupComplete.cmd fehlt."
+    }
+
+    Copy-Item `
+        $SetupComplete `
+        (Join-Path $SetupScripts "SetupComplete.cmd") `
+        -Force
+} else {
+    '@echo off', 'rem QEMU Guest Agent ist fuer diesen Build deaktiviert.', 'exit /b 0' | Set-Content -LiteralPath (Join-Path $SetupScripts 'SetupComplete.cmd') -Encoding ASCII
 }
-
-Copy-Item `
-    $SetupComplete `
-    (Join-Path $SetupScripts "SetupComplete.cmd") `
-    -Force
 
 
 # ------------------------------------------------------------
@@ -781,7 +769,7 @@ Copy-Item `
 
 Set-BuildStep -State $BuildState -Path $StatePath -Number 8 -Name "Portable Tools synchronisieren"
 
-if (Test-Path $ToolsSource) {
+if (-not $Adjustments.Tools) { Write-Host "      Tools und Desktop-Verknüpfung deaktiviert." } elseif (Test-Path $ToolsSource) {
 
     # Alten Inhalt entfernen, damit keine veralteten Tools
     # aus vorherigen Builds in der ISO verbleiben
@@ -798,11 +786,11 @@ if (Test-Path $ToolsSource) {
         -Force `
         $OemTools | Out-Null
 
-    $Tools = @(Get-ChildItem $ToolsSource -Force)
+    $ToolItems = @(Get-ChildItem $ToolsSource -Force)
 
-    if ($Tools.Count -gt 0) {
+    if ($ToolItems.Count -gt 0) {
 
-        foreach ($Tool in $Tools) {
+        foreach ($Tool in $ToolItems) {
 
             Write-Host "      -> $($Tool.Name)"
 
@@ -926,6 +914,9 @@ catch {
         $Message = $Failure.Exception.Message
         if ($env:ISO_LAB_PASSWORD) {
             $Message = $Message.Replace($env:ISO_LAB_PASSWORD, "[REDACTED]")
+        }
+        foreach ($Secret in @($env:ISO_PRODUCT_KEY, $SetupProductKey)) {
+            if ($Secret) { $Message = $Message.Replace($Secret, '[REDACTED]') }
         }
         $BuildState.Error = $Message
         # Fehlerstatus darf niemals eine möglicherweise ältere ISO als Erfolg ausgeben.

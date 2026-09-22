@@ -1,3 +1,11 @@
+﻿$RuntimeTargetPath=Join-Path $PSScriptRoot 'target.psd1'
+$RuntimeOS=if(Test-Path -LiteralPath $RuntimeTargetPath){(Import-PowerShellDataFile -LiteralPath $RuntimeTargetPath).TargetOS}else{'Windows11'}
+if($RuntimeOS -like 'Server*'){return}
+if($RuntimeOS -eq 'Windows10'){
+    $Feeds='HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Feeds'
+    New-Item -Path $Feeds -Force | Out-Null
+    New-ItemProperty -Path $Feeds -Name 'EnableFeeds' -PropertyType DWord -Value 0 -Force | Out-Null
+}else{
 # Widgets abschalten
 $DshPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
 
@@ -11,6 +19,7 @@ New-ItemProperty `
     -Force | Out-Null
 
 
+}
 # Consumer Experience reduzieren
 $CloudContent = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
 
@@ -27,6 +36,7 @@ New-ItemProperty `
 # Vorschläge / Werbung / Tipps reduzieren
 $ContentDelivery = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
 
+if(-not (Test-Path -LiteralPath $ContentDelivery)) { New-Item -Path $ContentDelivery -Force | Out-Null }
 $Values = @{
     "ContentDeliveryAllowed"        = 0
     "OemPreInstalledAppsEnabled"    = 0

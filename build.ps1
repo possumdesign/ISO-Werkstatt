@@ -457,6 +457,10 @@ if ($EditionMatches.Count -gt 1) {
 $ImageIndex = $EditionMatches[0].ImageIndex
 $ImageDetails=Get-WindowsImage -ImagePath $InstallSource -Index $ImageIndex -ErrorAction Stop
 Assert-BuildImageTarget -Image $ImageDetails -TargetOS $TargetOS -InstallationMode $BuildProfile.InstallationMode
+if($TargetOS -eq 'Windows10'){
+    $SetupProductKey=Get-Windows10SetupKey -Xml (Get-Content -LiteralPath $AnswerTemplate -Raw) -ProductKey $SetupProductKey -EditionId $ImageDetails.EditionId -MediaRoot $IsoRoot
+    if(-not $BuildState.ProductKeyProvided -and $SetupProductKey){Write-Host '      Standard-Setup-Schlüssel der gewählten Edition aus dem Medium übernommen (keine Aktivierung).'}
+}
 $BuildState['ImageVersion']=[string]$ImageDetails.Version
 $BuildState['ImageInstallationType']=[string]$ImageDetails.InstallationType
 if([IO.Path]::GetExtension($InstallSource) -ieq '.esd'){

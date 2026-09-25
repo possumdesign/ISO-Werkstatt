@@ -349,3 +349,30 @@ function Get-BuildInstallImagePath {
     }
     throw 'Weder sources\install.wim noch sources\install.esd wurde im Installationsmedium gefunden.'
 }
+
+function Get-Windows10SetupKey {
+    param([string]$Xml, [string]$ProductKey, [string]$EditionId, [string]$MediaRoot)
+    if (-not [string]::IsNullOrEmpty($ProductKey)) { return $ProductKey }
+    $document=[xml]$Xml
+    $ns=[Xml.XmlNamespaceManager]::new($document.NameTable)
+    $ns.AddNamespace('u','urn:schemas-microsoft-com:unattend')
+    $existing=$document.SelectSingleNode('/u:unattend/u:settings[@pass="windowsPE"]/u:component[@name="Microsoft-Windows-Setup"]/u:UserData/u:ProductKey/u:Key',$ns)
+    if($existing -and -not [string]::IsNullOrWhiteSpace($existing.InnerText)){return ''}
+    # Exakte DISM-EditionId verwenden, niemals einen Pro-Key für andere Editionen übernehmen.
+    $path=Join-Path $MediaRoot 'sources\product.ini'
+    $keys=@()
+    if(-not [string]::IsNullOrWhiteSpace($EditionId) -and (Test-Path -LiteralPath $path -PathType Leaf)){
+        $section=''
+        foreach($line in [IO.File]::ReadAllLines($path)){
+            $line=$line.Trim()
+            if($line -match '^\[([^\]]+)\]$'){$section=$Matches[1];continue}
+            if($section -ieq 'cmi' -and $line -match '^([^=;#]+)=(.*)$'){
+                if($Matches[1].Trim() -ieq $EditionId){$keys+= $Matches[2].Trim()}
+            }
+        }
+    }
+    if($keys.Count -ne 1 -or $keys[0] -notmatch '^[A-Za-z0-9]{5}(-[A-Za-z0-9]{5}){4}$'){
+        throw 'Für die gewählte Windows-10-Edition fehlt ein eindeutiger Standard-Setup-Schlüssel im Medium. Bitte einen passenden Produktschlüssel im Builder eingeben.'
+    }
+    return $keys[0].ToUpperInvariant()
+}

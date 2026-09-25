@@ -53,6 +53,7 @@ foreach ($file in @("sources\install.wim", "sources\boot.wim", "boot\etfsboot.co
     New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
     Set-Content -LiteralPath $path -Value "fixture"
 }
+Set-Content -LiteralPath (Join-Path $WinMedia 'sources\product.ini') -Value "[cmi]`nProfessional=AAAAA-BBBBB-CCCCC-DDDDD-EEEEE"
 foreach ($folder in @('w11','w10','2k22','2k25')) {
 foreach ($driver in @("vioscsi", "NetKVM", "Balloon", "vioserial")) {
     $path = Join-Path $VirtMedia "$driver\$folder\amd64"
@@ -84,7 +85,7 @@ function Export-WindowsImage {
 function Get-WindowsImage {
     param($ImagePath, [switch]$Mounted, $Index, $ErrorAction)
     if($Mounted){return}
-    if($PSBoundParameters.ContainsKey('Index')){return [pscustomobject]@{ImageName=$FixtureImage.Name;ImageIndex=$Index;Architecture=9;Version=$FixtureImage.Version;InstallationType=$FixtureImage.Type}}
+    if($PSBoundParameters.ContainsKey('Index')){return [pscustomobject]@{ImageName=$FixtureImage.Name;ImageIndex=$Index;EditionId='Professional';Architecture=9;Version=$FixtureImage.Version;InstallationType=$FixtureImage.Type}}
     $sourceIndex=if([IO.Path]::GetExtension($ImagePath) -eq '.esd'){$FixtureImage.Index}else{1}
     [pscustomobject]@{ImageName=$FixtureImage.Name;ImageIndex=$sourceIndex}
 }
@@ -211,7 +212,10 @@ try {
         $ns=[Xml.XmlNamespaceManager]::new($xml.NameTable);$ns.AddNamespace('u','urn:schemas-microsoft-com:unattend')
         Assert-Test ($xml.SelectSingleNode('//u:AutoLogon/u:Username',$ns).InnerText -ceq $profile.LocalUserName) 'Zielkonto falsch.'
         Assert-Test (($xml.SelectNodes('//u:WillWipeDisk',$ns).Count -gt 0) -eq $profile.IncludeVirtioDrivers) 'VM/local-Partitionierung falsch.'
-        Assert-Test ($xml.SelectNodes('//u:UserData/u:ProductKey',$ns).Count -eq 0) 'Client-Setup-Key in neuer Zielvorlage.'
+        if($profile.TargetOS -eq 'Windows10'){
+            Assert-Test ($xml.SelectSingleNode('//u:UserData/u:ProductKey/u:Key',$ns).InnerText -eq 'AAAAA-BBBBB-CCCCC-DDDDD-EEEEE') 'Windows-10-Setup-Key aus Medium fehlt.'
+            Assert-Test (-not $state.ProductKeyProvided) 'Automatischer Setup-Key als Benutzereingabe markiert.'
+        }else{Assert-Test ($xml.SelectNodes('//u:UserData/u:ProductKey',$ns).Count -eq 0) 'Client-Setup-Key in Servervorlage.'}
         if($profile.TargetOS -like 'Server*'){
             Assert-Test ($xml.SelectSingleNode('//u:AdministratorPassword/u:Value',$ns).InnerText -ceq $env:ISO_LAB_PASSWORD) 'Server-Administratorkennwort fehlt oder wurde verändert.'
         }

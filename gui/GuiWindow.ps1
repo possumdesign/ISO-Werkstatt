@@ -61,9 +61,9 @@ function Update-BuilderWindow {
     try { $state = Get-GuiBuildState -Run $run }
     catch { $stateError = $_.Exception.Message }
     $elapsed = [DateTime]::UtcNow - $run.StartedAt
-    $Ui.Controls.Duration.Text = "Laufzeit: {0:00}:{1:00}:{2:00}" -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds
+    $Ui.Controls.Duration.Text = Convert-GuiText -Text ("Laufzeit: {0:00}:{1:00}:{2:00}" -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds) -Language $Ui.Language
     if ($state -and $state.Status -eq "Running") {
-        $Ui.Controls.Status.Text = "Schritt $($state.Step)/$($state.TotalSteps): $($state.StepName)"
+        $Ui.Controls.Status.Text = Convert-GuiText -Text ("Schritt $($state.Step)/$($state.TotalSteps): $($state.StepName)") -Language $Ui.Language
         $Ui.Controls.Progress.IsIndeterminate = $false
         if ($state.TotalSteps -gt 0) {
             $Ui.Controls.Progress.Value = [Math]::Max(0, [Math]::Min(99, (($state.Step - 1) * 100 / $state.TotalSteps)))
@@ -87,22 +87,22 @@ function Update-BuilderWindow {
     $Ui.Timer.Stop()
     $Ui.Active = $false
     $Ui.Controls.InputPanel.IsEnabled = $true
-    $Ui.Controls.StartBuild.Content = "Weitere ISO erstellen"
+    $Ui.Controls.StartBuild.Content = Convert-GuiText -Text ("Weitere ISO erstellen") -Language $Ui.Language
     $Ui.Controls.StartBuild.IsEnabled = $true
     $Ui.Controls.Progress.IsIndeterminate = $false
     $Ui.LastResult = $state
     if (Test-GuiBuildSuccess -Run $run -State $state) {
-        $Ui.Controls.Status.Text = "Build erfolgreich"
+        $Ui.Controls.Status.Text = Convert-GuiText -Text ("Build erfolgreich") -Language $Ui.Language
         $Ui.Controls.Status.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString("#126C60")
         $Ui.Controls.Progress.Value = 100
-        $Ui.Controls.Result.Text = "{0}`n{1:N2} GB · Fertige ISO" -f $state.IsoPath, ($state.IsoSizeBytes / 1GB)
+        $Ui.Controls.Result.Text = Convert-GuiText -Text ("{0}`n{1:N2} GB · Fertige ISO" -f $state.IsoPath, ($state.IsoSizeBytes / 1GB)) -Language $Ui.Language
         $Ui.Controls.Hash.Text = $state.Sha256
         $Ui.Controls.Hash.Visibility = "Visible"
         $Ui.Controls.CopyHash.IsEnabled = -not [string]::IsNullOrWhiteSpace($state.Sha256)
         $Ui.Controls.OpenOutput.IsEnabled = $true
     }
     else {
-        $Ui.Controls.Status.Text = "Build fehlgeschlagen"
+        $Ui.Controls.Status.Text = Convert-GuiText -Text ("Build fehlgeschlagen") -Language $Ui.Language
         $Ui.Controls.Status.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString("#AC3030")
         $message = if ($state -and $state.Error) { $state.Error }
             elseif ($stateError) { $stateError }
@@ -110,7 +110,7 @@ function Update-BuilderWindow {
             else { "Der Prozess wurde ohne bestätigtes Ergebnis beendet (Exitcode $($run.Process.ExitCode))." }
         $message = [string]$message
         if ($message.Length -gt 1800) { $message = $message.Substring(0, 1800) }
-        $Ui.Controls.Result.Text = $message
+        $Ui.Controls.Result.Text = Convert-GuiText -Text ($message) -Language $Ui.Language
         if (-not $Ui.Controls.OpenLog.IsEnabled -and $run.Stdout.Status -eq "RanToCompletion") {
             $Ui.Controls.LogPreview.Text = $run.Stdout.Result
         }
@@ -140,15 +140,15 @@ function Start-BuilderWindowRun {
         $Ui.Controls.ProductKey.Clear()
         $Ui.Controls.InputPanel.IsEnabled = $false
         $Ui.Controls.StartBuild.IsEnabled = $false
-        $Ui.Controls.StartBuild.Content = "Build läuft …"
+        $Ui.Controls.StartBuild.Content = Convert-GuiText -Text ("Build läuft …") -Language $Ui.Language
         $Ui.Controls.OpenOutput.IsEnabled = $false
         $Ui.Controls.CopyHash.IsEnabled = $false
         $Ui.Controls.OpenLog.IsEnabled = $false
         $Ui.Controls.Hash.Text = ""
         $Ui.Controls.Hash.Visibility = "Collapsed"
-        $Ui.Controls.Status.Text = "Builder wird gestartet …"
+        $Ui.Controls.Status.Text = Convert-GuiText -Text ("Builder wird gestartet …") -Language $Ui.Language
         $Ui.Controls.Status.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString("#126C60")
-        $Ui.Controls.Result.Text = "Die einzelnen Schritte können unterschiedlich lange dauern."
+        $Ui.Controls.Result.Text = Convert-GuiText -Text ("Die einzelnen Schritte können unterschiedlich lange dauern.") -Language $Ui.Language
         $Ui.Controls.Progress.IsIndeterminate = $true
         $Ui.Controls.LogPreview.Text = "Warte auf das Build-Protokoll …"
         $Ui.Timer.Start()

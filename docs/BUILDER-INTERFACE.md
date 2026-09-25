@@ -29,7 +29,7 @@ Eine bereits verwendete RunId wird abgewiesen. Die zugehörige Statusdatei wird 
 
 `VirtioIso` ist nur erforderlich, wenn VirtIO-Treiber oder QEMU aktiv sind. Ohne beide Komponenten wird weder der VirtIO-Pfad geprüft noch die ISO geöffnet. Die Windows-ISO wird weiterhin eingehängt; die Edition wird auch ohne Treiberintegration aus install.wim oder install.esd ermittelt.
 
-`ISO_PRODUCT_KEY` enthält optional den Setup-Produktschlüssel. Kein entsprechender Befehlszeilenparameter. Die GUI setzt ihn nur in der Kindprozessumgebung und entfernt eine geerbte Vorgabe, wenn ihr Feld leer ist. Der Builder validiert das Format vor Medienarbeiten und schreibt ihn nur in die erzeugte Antwortdatei. Leere Werte lassen die Vorlage unverändert. Siehe README für Editions-/Aktivierungsverhalten und OEM-Einschränkungen von SetupComplete.
+`ISO_PRODUCT_KEY` enthält optional den Setup-Produktschlüssel. Kein entsprechender Befehlszeilenparameter. Die GUI setzt ihn nur in der Kindprozessumgebung und entfernt eine geerbte Vorgabe, wenn ihr Feld leer ist. Der Builder validiert das Format vor Medienarbeiten und schreibt ihn nur in die erzeugte Antwortdatei. Leere Werte lassen die Vorlage bei Windows 11 und Server unverändert. Bei Windows 10 ohne Vorlagenschlüssel wird der passende Standard-Setup-Schlüssel aus sources/product.ini anhand der DISM-EditionId übernommen; fehlende oder mehrdeutige Zuordnungen führen vor WIM-Mounts zum Abbruch. ProductKeyProvided bleibt dabei false, da kein Benutzer einen Schlüssel eingegeben hat. Siehe README für Editions-/Aktivierungsverhalten und OEM-Einschränkungen von SetupComplete.
 
 ## Statusdatei
 

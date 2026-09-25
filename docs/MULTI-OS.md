@@ -1,6 +1,6 @@
 # Windows 10 und Windows Server
 
-Der Builder unterstützt Windows 10 sowie Server 2022/2025 mit Desktop Experience und Server Core, jeweils x64. Die automatisierten Tests verwenden Ersatzmedien und simuliertes DISM. Echte Builds und Installationen dieser neuen Ziele stehen noch aus; Windows 11 wurde bereits in VM und auf einem Mini-PC getestet.
+Der Builder unterstützt Windows 10 sowie Server 2022/2025 mit Desktop Experience und Server Core, jeweils x64. Die automatisierten Tests verwenden Ersatzmedien und simuliertes DISM. Am 24.09.2026 wurden erfolgreiche Proxmox-Installationen von Windows 10 Pro sowie Server 2022/2025 jeweils mit Desktop Experience und Core, einschließlich QEMU Guest Agent, vom Benutzer bestätigt. Unter Windows 10 funktionieren auch Edge-Einstellungen, Erweiterung und lokale Suche. Offen ist ein Nebenbefund zu desktop.ini (siehe TESTPLAN.md). Neue lokale Hardwareprofile sind damit noch nicht separat installationsgetestet. Windows 11 wurde bereits in VM und auf einem Mini-PC getestet.
 
 ## Interne Profile und CLI-Auswahl
 
@@ -18,7 +18,7 @@ VM-Profile partitionieren Datenträger 0 automatisch (UEFI/GPT), integrieren Vir
 
 Die Vorlagen verwenden deutsche Sprache und Tastatur. Die Editionsnamen sind Vorschläge: Nach Auswahl der ISO die tatsächlich vorhandene Edition auswählen. Standard, Datacenter und Evaluation werden nicht anhand ihres Namens ausgeschlossen; Architektur, Windows-Version und Installationsvariante müssen passen. Core und Desktop Experience erfordern getrennte Installationen; ein späterer Wechsel ist nicht vorgesehen ([Microsoft](https://learn.microsoft.com/en-us/windows-server/get-started/getting-started-with-server-with-desktop-experience)).
 
-Neue Vorlagen enthalten keinen festen Produktschlüssel. Ein optionaler Schlüssel muss zum Medium und zur Edition passen. Server setzt das eingegebene Kennwort sowohl für das benannte lokale Administratorkonto als auch für den eingebauten Administrator; ein Kennwort entsprechend der Windows-Kennwortrichtlinie verwenden. Rollen, Domänenbeitritt und Aktivierung werden nicht eingerichtet.
+Neue Vorlagen enthalten keinen festen Produktschlüssel. Windows 10 erhält bei leerem Eingabefeld automatisch den zur DISM-EditionId passenden Standard-Setup-Schlüssel aus sources/product.ini des Mediums; ein eigener Vorlagenschlüssel bleibt erhalten. Fehlt eine eindeutige Zuordnung, verlangt der Builder einen passenden eingegebenen Schlüssel. Server erhält keinen solchen automatischen Fallback. Ein optionaler Schlüssel muss zum Medium und zur Edition passen. Server setzt das eingegebene Kennwort sowohl für das benannte lokale Administratorkonto als auch für den eingebauten Administrator; ein Kennwort entsprechend der Windows-Kennwortrichtlinie verwenden. Rollen, Domänenbeitritt und Aktivierung werden nicht eingerichtet.
 
 ## Anpassungen und Medien
 

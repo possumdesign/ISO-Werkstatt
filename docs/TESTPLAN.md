@@ -80,3 +80,25 @@ Windows 10 und Server 2022/2025 (Desktop Experience und Core) sind implementiert
 Ohne neuen Installationsdurchlauf prüfen: Start ohne ISO sperrt Optionen; nach Windows-10-Erkennung genau PC-Lokal/Proxmox VM und kein Core-Haken. Bei Server-ISO ist Core sichtbar, zunächst aus; Umschalten filtert die Editionen. Wechsel zurück zu Client-ISO entfernt Core und alte Editionen. Fehler bei der Erkennung dürfen keinen Build freigeben. Ein reines Core-Medium benötigt den ausdrücklich gesetzten Haken.
 
 Automatisiert: `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\tests\Test-MediaSelection.ps1`. Ergänzend prüfen Test-Editions.ps1 die Zielerkennung aus simulierten DISM-Metadaten und Test-Gui.ps1 den Hintergrundprozess einschließlich Fehlerfällen.
+
+## Windows-10-Setup: ProductKey (24.09.2026)
+
+Erster echter Test von Windows 10 Pro / Proxmox VM: Setup meldet, dass ProductKey nicht aus der Antwortdatei gelesen werden kann. Build ohne Benutzerschlüssel erfolgreich, erzeugte XML ohne ProductKey-Knoten. Korrektur: editionsgenauer Standard-Setup-Schlüssel aus product.ini für Windows 10, Benutzereingabe und vorhandene Vorlagenschlüssel haben Vorrang. Keine Umstellung auf KMS und keine automatische Aktivierung.
+
+Erneut testen: Windows-10-Pro-ISO bei leerem Schlüsselfeld neu bauen, neue ISO in Proxmox einlegen und Setup neu starten. Prüfen, ob Setup die bisherige Fehlerstelle passiert und die gewünschte Edition installiert. Erst danach als installationsgeprüft markieren. Automatisiert: Test-SetupKey.ps1 und Test-Builder.ps1; diese ersetzen den Setup-Test nicht.
+
+## Bestätigte Proxmox-Installationen (24.09.2026)
+
+Benutzerrückmeldung nach echten Installationen: Windows 10 Pro, Server 2022 Desktop Experience/Core und Server 2025 Desktop Experience/Core liefen als Proxmox-VM mit QEMU Guest Agent erfolgreich durch. Unter Windows 10 wurden zusätzlich Edge-Einstellungen, die Erweiterung und rein lokale Suche bestätigt. Der vorherige Windows-10-ProductKey-Abbruch trat beim Wiederholungstest nicht mehr auf.
+
+Offener Nebenbefund bei Windows 10: sichtbare desktop.ini auf dem Desktop und im Editor geöffnet. Benutzer bestätigt: automatisch nach der Anmeldung geöffnet. Explorer.ps1 setzt bereits ShowSuperHidden=0; Dateiattribute und Herkunft sind daher zu prüfen, bevor eine Korrektur festgelegt wird. Keine vollständige Fehlerfreiheit behauptet. Die Rückmeldung betrifft Proxmox-VMs, keine zusätzlichen Tests der neuen lokalen Hardwareprofile.
+
+Gezielte Reparatur ergänzt: scripts/Repair-DesktopIni.ps1 setzt an vorhandenen desktop.ini-Dateien in Benutzer-/gemeinsamem Desktop und Autostart Hidden und System, protokolliert die vorherigen Attribute und erhält Inhalte sowie übrige Attribute. Explorer.ps1 ruft die Reparatur bei neuen Installationen innerhalb der Explorer-Anpassungsgruppe auf. Auf bestehenden VMs das Skript als Administrator unter dem betroffenen Benutzer ausführen, Editor schließen und neu anmelden. Fehlende Schutzattribute sind eine Arbeitshypothese; Ausgabe und Wiederholungstest müssen die Ursache bestätigen. Ein bereits beim ersten Login geöffnetes Editorfenster wird nicht geschlossen; FirstLogon garantiert keine Ausführung vor dem Autostart. Keine Neuinstallation für die Prüfung erforderlich.
+
+### desktop.ini: bestätigte Rechteursache und Reparatur v3
+
+VM-Diagnose: erhöhte LabAdmin-Sitzung, öffentliche Desktop- und gemeinsame Autostart-desktop.ini nur Archive. Besitzer TrustedInstaller; Administratoren und SYSTEM jeweils nur ReadAndExecute. Benutzerdateien besitzen bereits Hidden/System. Deshalb scheitert der bisherige FileInfo.Attributes-Schreibzugriff auch erhöht.
+
+Reparatur v3 versucht nach fehlgeschlagenem Standardzugriff FILE_WRITE_ATTRIBUTES mit Backup-Semantik und vorübergehend aktiviertem SeRestorePrivilege. Besitzer und DACL werden nicht verändert; das vorherige Privileg wird im finally wiederhergestellt. Nur desktop.ini-Dateien, keine Verzeichnisse oder Reparse-Dateien; Dateiinhalte und Zeitstempel bleiben erhalten. Diagnose bleibt rein lesend. Der Starttext enthält eindeutig „repair v3“.
+
+Test-DesktopIniProtected.ps1 prüft den nativen Dateiattributzugriff und den Erhalt von Inhalt, Besitzer, ACL und Schreibzeit an temporären Dateien. Ohne erhöhtes Windows-Token wird der geschützte Zugriff erwartungsgemäß abgewiesen; die erfolgreiche Wiederherstellung auf den TrustedInstaller-Dateien muss noch in der VM bestätigt werden. Reparatur dort als Administrator ausführen, Editor schließen, ab- und anmelden. Keine Neuinstallation erforderlich. Die Herkunft der fehlenden Attribute im Installationsabbild ist noch nicht abschließend geklärt.

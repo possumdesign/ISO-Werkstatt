@@ -1,4 +1,7 @@
-﻿# Explorer-Defaults für LabAdmin
+﻿# Vor der Anzeige versteckter Dateien die Shell-Metadatenattribute wiederherstellen.
+& (Join-Path $PSScriptRoot 'Repair-DesktopIni.ps1')
+
+# Explorer-Defaults für LabAdmin
 
 $ExplorerAdvanced = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
 

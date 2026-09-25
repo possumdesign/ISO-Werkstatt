@@ -130,7 +130,7 @@ $env:ISO_LAB_PASSWORD = Read-Host "Kennwort für das lokale Konto"
 .\build.ps1 -WindowsIso "D:\ISO\Windows11.iso" -Profile pc-local -Tools Off
 ```
 
-Den optionalen Schlüssel vorzugsweise im verdeckten GUI-Feld eingeben. Bei CLI-Nutzung wird er aus `ISO_PRODUCT_KEY` gelesen, niemals als Build-Parameter. Leer bedeutet unveränderte Antwortvorlage: Das Laborprofil behält seinen bisherigen generischen Setup-Schlüssel; die PC-Vorlage enthält keinen festen Schlüssel. Das Verhalten ohne Schlüssel hängt auch von Installationsmedium und einem möglichen Firmware-Schlüssel ab.
+Den optionalen Schlüssel vorzugsweise im verdeckten GUI-Feld eingeben. Bei CLI-Nutzung wird er aus `ISO_PRODUCT_KEY` gelesen, niemals als Build-Parameter. Bei Windows 10 ohne Eingabe übernimmt der Builder den exakt zur DISM-EditionId passenden Standard-Setup-Schlüssel aus sources/product.ini des Mediums, sofern die Vorlage keinen eigenen Schlüssel enthält. Fehlt eine eindeutige Zuordnung, bricht der Build vor der Treiberintegration ab und verlangt einen passenden Schlüssel. Dieser Standard-Schlüssel dient der Installation, nicht der Aktivierung. Bei anderen Zielsystemen bedeutet leer weiterhin unveränderte Antwortvorlage: Das Laborprofil behält seinen bisherigen generischen Setup-Schlüssel; die PC-Vorlage enthält keinen festen Schlüssel. Das Verhalten ohne Schlüssel hängt auch von Installationsmedium und einem möglichen Firmware-Schlüssel ab.
 
 Geprüft wird nur das Format `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`, keine Lizenzgültigkeit. Der Schlüssel wird unter `Microsoft-Windows-Setup/UserData/ProductKey` eingesetzt und muss zur ausgewählten Edition passen. Windows-Aktivierung ist ein separater Schritt; das Feld setzt keinen Aktivierungsschlüssel unter `Microsoft-Windows-Shell-Setup`. Siehe [Microsoft: ProductKey-Einstellungen](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-setup-userdata-productkey).
 
@@ -248,3 +248,10 @@ Oben rechts schalten die Buttons mit deutscher und US-Flagge zwischen **Deutsch*
 ## Windows 10 und Windows Server
 
 Die neuen Profile, Unterschiede bei Server Core und der gebündelte Installationstest stehen in [docs/MULTI-OS.md](docs/MULTI-OS.md). Bestehende Windows-11-Profile behalten ihre Vorgaben.
+
+## Lizenz
+
+ISO-Werkstatt / ISO-Crafter steht unter der [MIT-Lizenz](LICENSE).
+Copyright (c) 2026 possumdesign.
+
+Die Lizenz gilt für den eigenen Projektcode. Windows-Installationsmedien, VirtIO-Treiber, QEMU und andere Komponenten Dritter unterliegen ihren jeweiligen Lizenzen; die Projektlizenz erteilt keine zusätzlichen Rechte daran.

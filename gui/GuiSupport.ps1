@@ -126,3 +126,14 @@ function Test-GuiBuildSuccess {
         -not [string]::IsNullOrWhiteSpace($State.IsoPath) -and [IO.File]::Exists($State.IsoPath) -and
         $State.Sha256 -match '^[A-Fa-f0-9]{64}$' -and [IO.File]::Exists($State.HashFile))
 }
+
+function Open-GuiToolsFolder {
+    param($Ui)
+    if($Ui.Active -or $Ui.EditionRun){return}
+    if(-not $Ui.EditionSource -or -not $Ui.ProfileInfo){throw 'Bitte zuerst eine Windows-ISO auswählen und erkennen lassen.'}
+    $path=[IO.Path]::GetFullPath((Join-Path $Ui.Root $Ui.ProfileInfo.ToolsDirectory))
+    if(Test-Path -LiteralPath $path){
+        if(-not (Test-Path -LiteralPath $path -PathType Container)){throw 'Der Tools-Pfad ist kein Ordner.'}
+    }else{[void][IO.Directory]::CreateDirectory($path)}
+    Start-Process -FilePath 'explorer.exe' -ArgumentList (ConvertTo-ProcessArgument $path) -ErrorAction Stop | Out-Null
+}

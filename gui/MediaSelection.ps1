@@ -10,6 +10,7 @@
     $Ui.Controls.Edition.Items.Clear()
     $Ui.Controls.Edition.Text=''
     $Ui.Controls.BuildOptions.IsEnabled=$false
+    $Ui.Controls.OpenToolsFolder.IsEnabled=$false
     $Ui.Controls.StartBuild.IsEnabled=$false
     $Ui.Controls.ProfileSummary.Text='Bitte zuerst eine Windows-ISO auswählen und erkennen lassen.'
 }
@@ -26,6 +27,7 @@ function Set-GuiMedia {
     $hasCore=$targets[0] -like 'Server*' -and @($Editions | Where-Object InstallationMode -eq 'Core').Count -gt 0
     $Ui.Controls.CoreInstall.Visibility=if($hasCore){'Visible'}else{'Collapsed'}
     $Ui.Controls.BuildOptions.IsEnabled=$true
+    $Ui.Controls.OpenToolsFolder.IsEnabled=$true
     Update-GuiProfile -Ui $Ui
 }
 

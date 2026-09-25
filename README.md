@@ -255,3 +255,9 @@ ISO-Werkstatt / ISO-Crafter steht unter der [MIT-Lizenz](LICENSE).
 Copyright (c) 2026 possumdesign.
 
 Die Lizenz gilt für den eigenen Projektcode. Windows-Installationsmedien, VirtIO-Treiber, QEMU und andere Komponenten Dritter unterliegen ihren jeweiligen Lizenzen; die Projektlizenz erteilt keine zusätzlichen Rechte daran.
+
+## Eigene Tools bereitstellen
+
+Nach der ISO-Erkennung unter **Zusätzliche Anpassungen** den Button **Tools-Ordner öffnen** nutzen. Er öffnet den im aktuellen Profil hinterlegten Ordner und legt ihn bei Bedarf an. Der Hilfetext beim Darüberfahren erklärt die Übernahme. Eigene portable Programme oder ZIP-Dateien selbst beim Hersteller beziehen; nur bei aktivierter Tools-Option werden sie in die ISO übernommen. Der Standardordner wird außer seiner Anleitung vollständig von Git ausgeschlossen. Fremdprogramme werden nicht mitgeliefert.
+
+Offizielle Bezugsquellen: [Installationsmedien](source/README.md). Umfang und Ergebnis der Quellprüfung: [SOURCE-REVIEW.md](docs/SOURCE-REVIEW.md). Für Release-Quellpakete ausschließlich einen geprüften Git-Stand archivieren, nicht den lokalen Arbeitsordner.

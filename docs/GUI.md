@@ -47,3 +47,7 @@ Der Test benötigt keine Administratorrechte. Er lädt das echte WPF-Fenster ohn
 Für den manuellen Test zunächst nur das Fenster öffnen und die Felder prüfen. Danach einen normalen Windows-11-Build aus der Oberfläche starten. Das Windows-11-PC-Profil wurde auf einem Mini-PC erfolgreich installiert. Für die neuen Zielsysteme stehen echte Installationstests aus; siehe [MULTI-OS.md](MULTI-OS.md). Details stehen in [TESTPLAN.md](TESTPLAN.md).
 
 Bei Core-Profilen sind Bing-/Websuche und uBlock im Hauptfenster deaktiviert. Im Profileditor müssen alle Desktop-Anpassungen ausgeschaltet sein; ungültige Kombinationen werden beim Speichern abgewiesen. Die Profilzusammenfassung zeigt bei neuen Zielsystemen den ausstehenden Installationstest an.
+
+## Eigene Tools bereitstellen
+
+Nach der ISO-Erkennung unter **Zusätzliche Anpassungen** den Button **Tools-Ordner öffnen** nutzen. Er öffnet den im aktuellen Profil hinterlegten Ordner und legt ihn bei Bedarf an. Der Hilfetext beim Darüberfahren erklärt die Übernahme. Eigene portable Programme oder ZIP-Dateien selbst beim Hersteller beziehen; nur bei aktivierter Tools-Option werden sie in die ISO übernommen. Der Standardordner wird außer seiner Anleitung vollständig von Git ausgeschlossen. Fremdprogramme werden nicht mitgeliefert.

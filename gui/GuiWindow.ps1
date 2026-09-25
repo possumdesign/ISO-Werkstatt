@@ -166,7 +166,7 @@ function New-BuilderWindow {
     }
     foreach ($name in @("BuildOptions", "CoreInstall", "LanguageDE", "LanguageEN", "EditProfile", "InputPanel", "WindowsIso", "VirtioIso", "BrowseWindows", "BrowseVirtio", "Profile", "ProfileSummary",
         "Edition", "ReadEditions", "EditionHint", "Version", "LocalUserName", "Password", "Validation", "StartBuild", "Status", "Progress", "Duration", "Result", "Hash",
-        "OpenOutput", "CopyHash", "LogPreview", "OpenLog", "ProductKey", "IncludeTools", "DisableWebSearch", "IncludeUBlockLite", "IncludeQemu", "VirtioHint", "OptionsMenu")) {
+        "OpenToolsFolder", "OpenOutput", "CopyHash", "LogPreview", "OpenLog", "ProductKey", "IncludeTools", "DisableWebSearch", "IncludeUBlockLite", "IncludeQemu", "VirtioHint", "OptionsMenu")) {
         $ui.Controls[$name] = $window.FindName($name)
         if (-not $ui.Controls[$name]) { throw "UI-Element fehlt: $name" }
     }
@@ -199,6 +199,10 @@ function New-BuilderWindow {
         $ui.Controls.EditionHint.Text='Bitte zuerst eine Windows-ISO auswählen und erkennen lassen.'
     }.GetNewClosure())
     $ui.Controls.ReadEditions.Add_Click({ Start-BuilderEditionQuery -Ui $ui }.GetNewClosure())
+    $ui.Controls.OpenToolsFolder.Add_Click({
+        try { Open-GuiToolsFolder -Ui $ui }
+        catch { $ui.Controls.Validation.Text=Convert-GuiText -Text $_.Exception.Message -Language $ui.Language }
+    }.GetNewClosure())
     $ui.Controls.StartBuild.Add_Click({ Start-BuilderWindowRun -Ui $ui }.GetNewClosure())
     $ui.Controls.OpenLog.Add_Click({
         try {

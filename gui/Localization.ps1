@@ -1,5 +1,8 @@
 ﻿# Nur Oberflächentexte übersetzen; Profilwerte, Pfade, Editionsnamen und Logs bleiben unverändert.
 $script:GuiEnglish = @{
+    'Tools-Ordner öffnen'='Open tools folder'
+    'Der Tools-Pfad ist kein Ordner.'='The tools path is not a folder.'
+    'Eigene portable Programme oder ZIP-Dateien hier ablegen. Wird bei aktivierter Tools-Option in die ISO übernommen. Bitte die jeweiligen Lizenzbedingungen beachten.'='Place your own portable programs or ZIP files here. Included in the ISO when the tools option is enabled. Please observe the respective license terms.'
     'Bearbeitet die Vorgaben für die erkannte ISO und Einsatzart. Zielsystem und Installationsvariante werden automatisch gewählt. Kennwort und Produktschlüssel werden nicht gespeichert.'='Edit defaults for the identified ISO and usage. Operating system and installation mode are selected automatically. Password and product key are not saved.'
     'Bitte zuerst eine Windows-ISO auswählen und erkennen lassen.'='Select a Windows ISO first and let the builder identify it.'
     'Core – Headless'='Core – Headless'

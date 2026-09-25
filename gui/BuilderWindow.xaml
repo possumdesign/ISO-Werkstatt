@@ -133,6 +133,7 @@
               <Expander x:Name="OptionsMenu" Header="Zusätzliche Anpassungen" Margin="0,16,0,2">
                 <StackPanel Margin="0,8,0,0">
                   <CheckBox x:Name="IncludeTools" Content="Tools-Ordner und Desktop-Verknüpfung" Margin="0,5"/>
+                  <Button x:Name="OpenToolsFolder" Content="Tools-Ordner öffnen" HorizontalAlignment="Left" Margin="0,4,0,8" ToolTip="Eigene portable Programme oder ZIP-Dateien hier ablegen. Wird bei aktivierter Tools-Option in die ISO übernommen. Bitte die jeweiligen Lizenzbedingungen beachten."/>
                   <CheckBox x:Name="DisableWebSearch" Content="Bing / Websuche abschalten" Margin="0,5"/>
                   <CheckBox x:Name="IncludeUBlockLite" Content="uBlock Origin Lite installieren" Margin="0,5"/>
                   <CheckBox x:Name="IncludeQemu" Content="QEMU Guest Agent installieren" Margin="0,5"/>

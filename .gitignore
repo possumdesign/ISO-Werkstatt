@@ -29,8 +29,6 @@ tmp/
 Thumbs.db
 Desktop.ini
 
-# Portable third-party tools
-tools/**/*.exe
-tools/**/*.dll
-tools/**/*.zip
-tools/**/*.7z
+# User-supplied tools: never publish payloads or local configuration
+/tools/*
+!/tools/README.md
